@@ -1,0 +1,3 @@
+# Rust artifacts
+**/target
+Cargo.lock
