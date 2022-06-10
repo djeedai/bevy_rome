@@ -1,28 +1,19 @@
-use bevy::ecs::entity::Entity;
+#![allow(dead_code, unused_imports, unused_variables, unused_mut)] // temp
+
+use bevy::ecs::{world::{Mut, World}, entity::Entity, component::{Component, ComponentId}};
 use bevy::math::Vec3;
 use bevy::transform::components::Transform;
 use serde::{Deserialize, Serialize, Serializer};
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
+use std::any::{Any, TypeId};
 
-#[derive(Debug)]
-pub enum Error {
-    Unknown,
-}
+mod diff;
+mod error;
 
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
-        Error::Unknown // TODO
-    }
-}
+use error::Error;
 
-impl From<ron::Error> for Error {
-    fn from(err: ron::Error) -> Self {
-        Error::Unknown // TODO
-    }
-}
-
-trait Message<'de, T>: Serialize + Deserialize<'de> + Send {
+trait Message<'de, T>: Serialize + Deserialize<'de> {
     fn undo(&mut self, target: &mut T);
     fn redo(&mut self, target: &mut T);
 }
@@ -79,7 +70,7 @@ mod tests {
     fn name() -> Result<(), Error> {
         std::thread::spawn(|| {
             let listener = TcpListener::bind("127.0.0.1:34254").unwrap();
-            let stream = match listener.accept() {
+            let mut stream = match listener.accept() {
                 Ok((stream, addr)) => {
                     println!("new client: {addr:?}");
                     stream
@@ -90,14 +81,14 @@ mod tests {
                 }
             };
             let mut queue = RecvQueue::new();
-            let buf : [u8; 1024] = [0; 1024];
+            let mut buf : [u8; 1024] = [0; 1024];
             let len = stream.read(&mut buf).unwrap();
 
 
-            TODO - need to decode the message type first!!!!
+            //TODO - need to decode the message type first!!!!
 
 
-            let msg = queue.recv(&buf[..len]);
+            //let msg = queue.recv(&buf[..len]);
         });
 
         let stream = TcpStream::connect("127.0.0.1:34254")?;
