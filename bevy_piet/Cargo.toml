@@ -1,0 +1,10 @@
+[package]
+name = "bevy_piet"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+
+[dependencies]
+bevy = { version = "0.7", default-features = false, features = ["dynamic", "render"] }
+kurbo = "0.8"
+piet = "0.5"
