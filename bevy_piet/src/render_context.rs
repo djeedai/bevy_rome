@@ -2,16 +2,42 @@
 
 use std::ops::RangeBounds;
 //use bevy::prelude::*;
-use bevy::render::render_resource::Buffer;
+use bevy::{math::Vec2, render::render_resource::Buffer};
 use kurbo::{Affine, Point, Rect, Shape, Size};
 use piet::{FixedGradient, HitTestPoint, HitTestPosition, IntoBrush, LineMetric};
 
-#[derive(Clone)]
+use crate::piet_canvas::{PietCanvas, Quad};
+
+#[derive(Debug, Clone)]
 pub struct BevyBrush {
     color: piet::Color,
 }
 
-#[derive(Clone)]
+impl Default for BevyBrush {
+    fn default() -> Self {
+        Self {
+            color: piet::Color::BLACK,
+        }
+    }
+}
+
+impl BevyBrush {
+    fn color(&self) -> piet::Color {
+        self.color.clone()
+    }
+}
+
+impl<'q> IntoBrush<BevyRenderContext<'q>> for BevyBrush {
+    fn make_brush<'b>(
+        &'b self,
+        _piet: &mut BevyRenderContext,
+        _bbox: impl FnOnce() -> Rect,
+    ) -> std::borrow::Cow<'b, BevyBrush> {
+        std::borrow::Cow::Borrowed(self)
+    }
+}
+
+#[derive(Debug, Default, Clone)]
 pub struct BevyText;
 
 impl piet::Text for BevyText {
@@ -28,7 +54,7 @@ impl piet::Text for BevyText {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct BevyTextLayout;
 
 impl piet::TextLayout for BevyTextLayout {
@@ -95,7 +121,7 @@ impl piet::TextLayoutBuilder for BevyTextLayoutBuilder {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct BevyImage {
     image: bevy::render::texture::Image,
 }
@@ -133,35 +159,34 @@ impl piet::Image for BevyImage {
     }
 }
 
-pub struct BevyRenderContext {
+#[derive(Debug)]
+pub struct BevyRenderContext<'q> {
     text: BevyText,
     buffer: Option<Buffer>,
     transform: Affine,
+    canvas: &'q mut PietCanvas,
 }
 
-impl BevyRenderContext {
-    pub fn new() -> Self {
+impl<'q> BevyRenderContext<'q> {
+    pub fn new(canvas: &'q mut PietCanvas) -> Self {
         Self {
             text: BevyText {},
             buffer: None,
             transform: Affine::IDENTITY,
+            canvas,
         }
     }
 
     pub fn render(ctx: &mut bevy::render::renderer::RenderContext) {}
 }
 
-impl IntoBrush<BevyRenderContext> for BevyBrush {
-    fn make_brush<'b>(
-        &'b self,
-        _piet: &mut BevyRenderContext,
-        _bbox: impl FnOnce() -> Rect,
-    ) -> std::borrow::Cow<'b, BevyBrush> {
-        std::borrow::Cow::Borrowed(self)
+impl<'q> Drop for BevyRenderContext<'q> {
+    fn drop(&mut self) {
+        self.canvas.finish();
     }
 }
 
-impl piet::RenderContext for BevyRenderContext {
+impl<'q> piet::RenderContext for BevyRenderContext<'q> {
     type Brush = BevyBrush;
     type Text = BevyText;
     type TextLayout = BevyTextLayout;
@@ -176,7 +201,7 @@ impl piet::RenderContext for BevyRenderContext {
     }
 
     fn gradient(&mut self, gradient: impl Into<FixedGradient>) -> Result<Self::Brush, piet::Error> {
-        Ok(self.solid_brush(piet::Color::PURPLE))
+        unimplemented!()
     }
 
     fn clear(&mut self, region: impl Into<Option<Rect>>, color: piet::Color) {
@@ -198,7 +223,26 @@ impl piet::RenderContext for BevyRenderContext {
     }
 
     fn fill(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
-        unimplemented!()
+        let brush = brush.make_brush(self, || shape.bounding_box());
+        let color = brush.color().as_rgba();
+        if let Some(rect) = shape.as_rect() {
+            self.canvas.quads_vec().push(Quad {
+                rect: bevy::sprite::Rect {
+                    min: Vec2::new(rect.x0 as f32, rect.y0 as f32),
+                    max: Vec2::new(rect.x1 as f32, rect.y1 as f32),
+                },
+                color: bevy::render::color::Color::rgba_linear(
+                    color.0 as f32,
+                    color.1 as f32,
+                    color.2 as f32,
+                    color.3 as f32,
+                ),
+                flip_x: false,
+                flip_y: false,
+            });
+        } else {
+            unimplemented!()
+        }
     }
 
     fn fill_even_odd(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {

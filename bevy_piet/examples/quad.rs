@@ -12,6 +12,8 @@ use bevy::{
 use bevy_inspector_egui::WorldInspectorPlugin;
 
 use bevy_piet::*;
+use piet::RenderContext;
+use kurbo::Rect;
 
 fn main() {
     App::default()
@@ -29,7 +31,7 @@ fn main() {
         .add_plugin(PietPlugin)
         .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
-        //.add_system(run)
+        .add_system(run)
         .run();
 }
 
@@ -46,21 +48,29 @@ fn setup(
 
     let mut canvas = PietCanvas::default();
 
-    canvas.quads_vec().push(Quad {
-        rect: bevy::sprite::Rect {
-            min: Vec2::ZERO,
-            max: Vec2::new(100., 50.),
-        },
-        color: Color::RED,
-        flip_x: false,
-        flip_y: false,
-    });
+    // canvas.quads_vec().push(Quad {
+    //     rect: bevy::sprite::Rect {
+    //         min: Vec2::ZERO,
+    //         max: Vec2::new(100., 50.),
+    //     },
+    //     color: Color::RED,
+    //     flip_x: false,
+    //     flip_y: false,
+    // });
 
     commands
         .spawn_bundle((Transform::default(), GlobalTransform::default(), canvas))
         .insert(Name::new("canvas"));
 }
 
-fn run() {
-
+fn run(mut query: Query<&mut PietCanvas>) {
+    let mut canvas = query.single_mut();
+    canvas.clear();
+    let mut ctx = canvas.render_context();
+    let brush = ctx.solid_brush(piet::Color::AQUA);
+    let rect = Rect::new(-10., -30., 20., 100.);
+    ctx.fill(rect, &brush);
+    let brush = ctx.solid_brush(piet::Color::RED);
+    let rect = Rect::new(0., 0., 50., 50.);
+    ctx.fill(rect, &brush);
 }
