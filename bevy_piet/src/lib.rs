@@ -2,6 +2,7 @@
 
 use std::ops::RangeBounds;
 //use bevy::prelude::*;
+use bevy::render::render_resource::Buffer;
 use kurbo::{Affine, Point, Rect, Shape, Size};
 use piet::{IntoBrush, *};
 
@@ -96,22 +97,53 @@ impl TextLayoutBuilder for BevyTextLayoutBuilder {
 
 #[derive(Clone)]
 struct BevyImage {
-    size: Size,
+    image: bevy::render::texture::Image,
+}
+
+impl BevyImage {
+    fn new(width: usize, height: usize, buf: &[u8], format: ImageFormat) -> Self {
+        let data = buf.to_vec();
+        let format = match format {
+            ImageFormat::Grayscale => bevy::render::render_resource::TextureFormat::R8Unorm,
+            ImageFormat::Rgb => unimplemented!(),
+            ImageFormat::RgbaSeparate => bevy::render::render_resource::TextureFormat::Rgba8Unorm,
+            ImageFormat::RgbaPremul => unimplemented!(),
+            _ => unimplemented!(),
+        };
+        let image = bevy::render::texture::Image::new(
+            bevy::render::render_resource::Extent3d {
+                width: width as u32,
+                height: height as u32,
+                depth_or_array_layers: 1,
+            },
+            bevy::render::render_resource::TextureDimension::D2,
+            data,
+            format,
+        );
+        Self { image }
+    }
 }
 
 impl Image for BevyImage {
     fn size(&self) -> Size {
-        self.size
+        let size = self.image.size().to_array();
+        Size::new(size[0] as f64, size[1] as f64)
     }
 }
 
 struct BevyRenderContext {
     text: BevyText,
+    buffer: Option<Buffer>,
+    transform: Affine,
 }
 
 impl BevyRenderContext {
     pub fn new() -> Self {
-        Self { text: BevyText {} }
+        Self {
+            text: BevyText {},
+            buffer: None,
+            transform: Affine::IDENTITY,
+        }
     }
 
     pub fn render(ctx: &mut bevy::render::renderer::RenderContext) {}
@@ -199,6 +231,10 @@ impl RenderContext for BevyRenderContext {
         unimplemented!()
     }
 
+    fn current_transform(&self) -> Affine {
+        self.transform
+    }
+
     fn make_image(
         &mut self,
         width: usize,
@@ -206,7 +242,7 @@ impl RenderContext for BevyRenderContext {
         buf: &[u8],
         format: ImageFormat,
     ) -> Result<Self::Image, Error> {
-        unimplemented!()
+        Ok(BevyImage::new(width, height, buf, format))
     }
 
     fn draw_image(
@@ -233,10 +269,6 @@ impl RenderContext for BevyRenderContext {
     }
 
     fn blurred_rect(&mut self, rect: Rect, blur_radius: f64, brush: &impl IntoBrush<Self>) {
-        unimplemented!()
-    }
-
-    fn current_transform(&self) -> Affine {
         unimplemented!()
     }
 }
