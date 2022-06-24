@@ -5,6 +5,6 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-bevy = { version = "0.7", default-features = false, features = ["dynamic", "filesystem_watcher"] }
+bevy = { version = "0.7", default-features = false, features = ["filesystem_watcher"] }
 serde = { version = "1.0", features = ["derive"] }
 ron = "0.7"

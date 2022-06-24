@@ -6,7 +6,7 @@ resolver = "2"
 
 [dependencies]
 # Bevy 0.7
-bevy = { version = "0.7", default-features = false, features = ["dynamic", "render"] }
+bevy = { version = "0.7", default-features = false, features = ["render"] }
 bytemuck = { version = "1.7", features = ["derive"] }
 bitflags = "1.2"
 copyless = "0.1.5"
