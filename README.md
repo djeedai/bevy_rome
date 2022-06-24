@@ -5,9 +5,11 @@ A collection of prototype crates toward a Bevy Editor.
 - [🏛️ Bevy Rome](#🏛️-bevy-rome)
 - [🎨 Bevy Piet](#🎨-bevy-piet)
 
+The vision for the Editor is described in [`docs/editor.md`](./docs/editor.md).
+
 ## 🏛️ Bevy Rome
 
-📦 `bevy_rome`
+[📦 `bevy_rome`](./bevy_rome)
 
 ### What
 
@@ -19,7 +21,7 @@ This allows building a data-driven Editor core which does not need any specific 
 
 ## 🎨 Bevy Piet
 
-📦 `bevy_piet`
+[📦 `bevy_piet`](./bevy_piet)
 
 ### What
 
