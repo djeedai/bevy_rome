@@ -33,11 +33,13 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
         texture::{BevyDefault, Image},
         view::{Msaa, ViewUniform, ViewUniformOffset, ViewUniforms},
+        RenderWorld,
     },
     utils::HashMap,
 };
+use copyless::VecHelper;
 
-use crate::QUAD_SHADER_HANDLE;
+use crate::{PietCanvas, QUAD_SHADER_HANDLE};
 
 pub type DrawPiet = (
     SetItemPipeline,
@@ -79,16 +81,17 @@ impl<const I: usize> EntityRenderCommand for SetQuadTextureBindGroup<I> {
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let quad_batch = query_batch.get(item).unwrap();
-        let image_bind_groups = image_bind_groups.into_inner();
-
-        pass.set_bind_group(
-            I,
-            image_bind_groups
-                .values
-                .get(&Handle::weak(quad_batch.image_handle_id))
-                .unwrap(),
-            &[],
-        );
+        if quad_batch.textured {
+            let image_bind_groups = image_bind_groups.into_inner();
+            pass.set_bind_group(
+                I,
+                image_bind_groups
+                    .values
+                    .get(&Handle::weak(quad_batch.image_handle_id))
+                    .unwrap(),
+                &[],
+            );
+        }
         RenderCommandResult::Success
     }
 }
@@ -106,8 +109,8 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawQuadBatch {
     ) -> RenderCommandResult {
         let quad_batch = query_batch.get(item.entity()).unwrap();
         let quad_meta = quad_meta.into_inner();
-        if quad_batch.colored {
-            pass.set_vertex_buffer(0, quad_meta.colored_vertices.buffer().unwrap().slice(..));
+        if quad_batch.textured {
+            pass.set_vertex_buffer(0, quad_meta.textured_vertices.buffer().unwrap().slice(..));
         } else {
             pass.set_vertex_buffer(0, quad_meta.vertices.buffer().unwrap().slice(..));
         }
@@ -120,26 +123,26 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawQuadBatch {
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct QuadVertex {
     pub position: [f32; 3],
-    pub uv: [f32; 2],
+    pub color: u32,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
-struct ColoredQuadVertex {
+struct TexturedQuadVertex {
     pub position: [f32; 3],
+    pub color: u32,
     pub uv: [f32; 2],
-    pub color: [f32; 4],
 }
 
 #[derive(Component, Eq, PartialEq, Copy, Clone)]
 pub struct QuadBatch {
     image_handle_id: HandleId,
-    colored: bool,
+    textured: bool,
 }
 
 pub struct QuadMeta {
     vertices: BufferVec<QuadVertex>,
-    colored_vertices: BufferVec<ColoredQuadVertex>,
+    textured_vertices: BufferVec<TexturedQuadVertex>,
     view_bind_group: Option<BindGroup>,
 }
 
@@ -147,7 +150,7 @@ impl Default for QuadMeta {
     fn default() -> Self {
         Self {
             vertices: BufferVec::new(BufferUsages::VERTEX),
-            colored_vertices: BufferVec::new(BufferUsages::VERTEX),
+            textured_vertices: BufferVec::new(BufferUsages::VERTEX),
             view_bind_group: None,
         }
     }
@@ -217,7 +220,7 @@ bitflags::bitflags! {
     // MSAA uses the highest 6 bits for the MSAA sample count - 1 to support up to 64x MSAA.
     pub struct QuadPipelineKey: u32 {
         const NONE                        = 0;
-        const COLORED                     = (1 << 0);
+        const TEXTURED                    = (1 << 0);
         const MSAA_RESERVED_BITS          = QuadPipelineKey::MSAA_MASK_BITS << QuadPipelineKey::MSAA_SHIFT_BITS;
     }
 }
@@ -243,22 +246,20 @@ impl SpecializedRenderPipeline for QuadPipeline {
         let mut formats = vec![
             // position
             VertexFormat::Float32x3,
-            // uv
-            VertexFormat::Float32x2,
-        ];
-
-        if key.contains(QuadPipelineKey::COLORED) {
             // color
-            formats.push(VertexFormat::Float32x4);
+            VertexFormat::Unorm8x4,
+        ];
+        let mut layouts = vec![self.view_layout.clone()];
+        let mut shader_defs = Vec::new();
+
+        if key.contains(QuadPipelineKey::TEXTURED) {
+            shader_defs.push("TEXTURED".to_string());
+            formats.push(VertexFormat::Float32x2); // uv
+            layouts.push(self.material_layout.clone());
         }
 
         let vertex_layout =
             VertexBufferLayout::from_vertex_formats(VertexStepMode::Vertex, formats);
-
-        let mut shader_defs = Vec::new();
-        if key.contains(QuadPipelineKey::COLORED) {
-            shader_defs.push("COLORED".to_string());
-        }
 
         RenderPipelineDescriptor {
             vertex: VertexState {
@@ -277,7 +278,7 @@ impl SpecializedRenderPipeline for QuadPipeline {
                     write_mask: ColorWrites::ALL,
                 }],
             }),
-            layout: Some(vec![self.view_layout.clone(), self.material_layout.clone()]),
+            layout: Some(layouts),
             primitive: PrimitiveState {
                 front_face: FrontFace::Ccw,
                 cull_mode: None,
@@ -320,14 +321,12 @@ pub struct ExtractedQuad {
     pub color: Color,
     /// Select an area of the texture
     pub rect: Option<bevy::sprite::Rect>,
-    /// Change the on-screen size of the quad
-    pub custom_size: Option<Vec2>,
+    pub size: Vec2,
     /// Handle to the `Image` of this quad
     /// PERF: storing a `HandleId` instead of `Handle<Image>` enables some optimizations (`ExtractedQuad` becomes `Copy` and doesn't need to be dropped)
     pub image_handle_id: HandleId,
     pub flip_x: bool,
     pub flip_y: bool,
-    pub anchor: Vec2,
 }
 
 #[derive(Default)]
@@ -338,6 +337,89 @@ pub struct ExtractedQuads {
 #[derive(Default)]
 pub struct QuadAssetEvents {
     pub images: Vec<AssetEvent<Image>>,
+}
+
+pub(crate) fn extract_quad_events(
+    mut render_world: ResMut<RenderWorld>,
+    mut image_events: EventReader<AssetEvent<Image>>,
+) {
+    //trace!("extract_quad_events");
+    let mut events = render_world.resource_mut::<QuadAssetEvents>();
+    let QuadAssetEvents { ref mut images } = *events;
+    images.clear();
+
+    for image in image_events.iter() {
+        // AssetEvent: !Clone
+        images.push(match image {
+            AssetEvent::Created { handle } => AssetEvent::Created {
+                handle: handle.clone_weak(),
+            },
+            AssetEvent::Modified { handle } => AssetEvent::Modified {
+                handle: handle.clone_weak(),
+            },
+            AssetEvent::Removed { handle } => AssetEvent::Removed {
+                handle: handle.clone_weak(),
+            },
+        });
+    }
+}
+
+pub(crate) fn extract_quads(
+    mut render_world: ResMut<RenderWorld>,
+    texture_atlases: Res<Assets<TextureAtlas>>,
+    canvas_query: Query<(Option<&Visibility>, &PietCanvas, &GlobalTransform)>,
+    atlas_query: Query<(
+        &Visibility,
+        &TextureAtlasSprite,
+        &GlobalTransform,
+        &Handle<TextureAtlas>,
+    )>,
+) {
+    trace!("extract_quads");
+    let mut extracted_quads = render_world.resource_mut::<ExtractedQuads>();
+    extracted_quads.quads.clear();
+    for (opt_visibility, canvas, transform) in canvas_query.iter() {
+        if let Some(visibility) = opt_visibility {
+            if !visibility.is_visible {
+                continue;
+            }
+        }
+        extracted_quads.quads.reserve(canvas.quads().len());
+        trace!("canvas: {} quads", canvas.quads().len());
+        for quad in canvas.quads() {
+            // PERF: we don't check in this function that the `Image` asset is ready, since it should be in most cases and hashing the handle is expensive
+            extracted_quads.quads.alloc().init(ExtractedQuad {
+                color: quad.color,
+                transform: *transform,
+                rect: Some(quad.rect),
+                size: quad.rect.size(),
+                flip_x: quad.flip_x,
+                flip_y: quad.flip_y,
+                image_handle_id: HandleId::default::<Image>(), // TODO -- handle.id,
+            });
+        }
+    }
+
+    // for (visibility, atlas_quad, transform, texture_atlas_handle) in atlas_query.iter() {
+    //     if !visibility.is_visible {
+    //         continue;
+    //     }
+    //     if let Some(texture_atlas) = texture_atlases.get(texture_atlas_handle) {
+    //         let rect = Some(texture_atlas.textures[atlas_quad.index as usize]);
+    //         extracted_quads.quads.alloc().init(ExtractedQuad {
+    //             color: atlas_quad.color,
+    //             transform: *transform,
+    //             // Select the area in the texture atlas
+    //             rect,
+    //             // Pass the custom size
+    //             size: atlas_quad.custom_size.unwrap_or(Vec2::ONE),
+    //             flip_x: atlas_quad.flip_x,
+    //             flip_y: atlas_quad.flip_y,
+    //             image_handle_id: texture_atlas.texture.id,
+    //             anchor: atlas_quad.anchor.as_vec(),
+    //         });
+    //     }
+    // }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -358,6 +440,7 @@ pub fn queue_quads(
     mut views: Query<&mut RenderPhase<Transparent2d>>,
     events: Res<QuadAssetEvents>,
 ) {
+    trace!("queue_quads");
     // If an image has changed, the GpuImage has (probably) changed
     for event in &events.images {
         match event {
@@ -373,7 +456,7 @@ pub fn queue_quads(
 
         // Clear the vertex buffers
         quad_meta.vertices.clear();
-        quad_meta.colored_vertices.clear();
+        quad_meta.textured_vertices.clear();
 
         quad_meta.view_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
             entries: &[BindGroupEntry {
@@ -387,15 +470,15 @@ pub fn queue_quads(
         let draw_quads_function = draw_functions.read().get_id::<DrawPiet>().unwrap();
         let key = QuadPipelineKey::from_msaa_samples(msaa.samples);
         let pipeline = pipelines.specialize(&mut pipeline_cache, &quad_pipeline, key);
-        let colored_pipeline = pipelines.specialize(
+        let textured_pipeline = pipelines.specialize(
             &mut pipeline_cache,
             &quad_pipeline,
-            key | QuadPipelineKey::COLORED,
+            key | QuadPipelineKey::TEXTURED,
         );
 
         // Vertex buffer indices
         let mut index = 0;
-        let mut colored_index = 0;
+        let mut textured_index = 0;
 
         // FIXME: VisibleEntities is ignored
         for mut transparent_phase in views.iter_mut() {
@@ -422,7 +505,7 @@ pub fn queue_quads(
             // Impossible starting values that will be replaced on the first iteration
             let mut current_batch = QuadBatch {
                 image_handle_id: HandleId::Id(Uuid::nil(), u64::MAX),
-                colored: false,
+                textured: false,
             };
             let mut current_batch_entity = Entity::from_raw(u32::MAX);
             let mut current_image_size = Vec2::ZERO;
@@ -434,76 +517,79 @@ pub fn queue_quads(
             for extracted_quad in extracted_quads.iter() {
                 let new_batch = QuadBatch {
                     image_handle_id: extracted_quad.image_handle_id,
-                    colored: extracted_quad.color != Color::WHITE,
+                    textured: extracted_quad.image_handle_id != HandleId::default::<Image>(),
                 };
                 if new_batch != current_batch {
-                    // Set-up a new possible batch
-                    if let Some(gpu_image) =
-                        gpu_images.get(&Handle::weak(new_batch.image_handle_id))
-                    {
-                        current_batch = new_batch;
-                        current_image_size = Vec2::new(gpu_image.size.width, gpu_image.size.height);
-                        current_batch_entity = commands.spawn_bundle((current_batch,)).id();
+                    if new_batch.textured {
+                        // Set-up a new possible batch
+                        if let Some(gpu_image) =
+                            gpu_images.get(&Handle::weak(new_batch.image_handle_id))
+                        {
+                            current_batch = new_batch;
+                            current_image_size =
+                                Vec2::new(gpu_image.size.width, gpu_image.size.height);
+                            current_batch_entity = commands.spawn_bundle((current_batch,)).id();
 
-                        image_bind_groups
-                            .values
-                            .entry(Handle::weak(current_batch.image_handle_id))
-                            .or_insert_with(|| {
-                                render_device.create_bind_group(&BindGroupDescriptor {
-                                    entries: &[
-                                        BindGroupEntry {
-                                            binding: 0,
-                                            resource: BindingResource::TextureView(
-                                                &gpu_image.texture_view,
-                                            ),
-                                        },
-                                        BindGroupEntry {
-                                            binding: 1,
-                                            resource: BindingResource::Sampler(&gpu_image.sampler),
-                                        },
-                                    ],
-                                    label: Some("quad_material_bind_group"),
-                                    layout: &quad_pipeline.material_layout,
-                                })
-                            });
+                            image_bind_groups
+                                .values
+                                .entry(Handle::weak(current_batch.image_handle_id))
+                                .or_insert_with(|| {
+                                    render_device.create_bind_group(&BindGroupDescriptor {
+                                        entries: &[
+                                            BindGroupEntry {
+                                                binding: 0,
+                                                resource: BindingResource::TextureView(
+                                                    &gpu_image.texture_view,
+                                                ),
+                                            },
+                                            BindGroupEntry {
+                                                binding: 1,
+                                                resource: BindingResource::Sampler(
+                                                    &gpu_image.sampler,
+                                                ),
+                                            },
+                                        ],
+                                        label: Some("quad_material_bind_group"),
+                                        layout: &quad_pipeline.material_layout,
+                                    })
+                                });
+                        } else {
+                            // Skip this item if the texture is not ready
+                            continue;
+                        }
                     } else {
-                        // Skip this item if the texture is not ready
-                        continue;
+                        current_batch = new_batch;
+                        current_batch_entity = commands.spawn_bundle((current_batch,)).id();
                     }
                 }
-
-                // Calculate vertex data for this item
 
                 let mut uvs = QUAD_UVS;
-                if extracted_quad.flip_x {
-                    uvs = [uvs[1], uvs[0], uvs[3], uvs[2]];
-                }
-                if extracted_quad.flip_y {
-                    uvs = [uvs[3], uvs[2], uvs[1], uvs[0]];
-                }
-
-                // By default, the size of the quad is the size of the texture
-                let mut quad_size = current_image_size;
-
-                // If a rect is specified, adjust UVs and the size of the quad
-                if let Some(rect) = extracted_quad.rect {
-                    let rect_size = rect.size();
-                    for uv in &mut uvs {
-                        *uv = (rect.min + *uv * rect_size) / current_image_size;
+                if current_batch.textured {
+                    // Calculate vertex data for this item
+                    if extracted_quad.flip_x {
+                        uvs = [uvs[1], uvs[0], uvs[3], uvs[2]];
                     }
-                    quad_size = rect_size;
+                    if extracted_quad.flip_y {
+                        uvs = [uvs[3], uvs[2], uvs[1], uvs[0]];
+                    }
+
+                    // If a rect is specified, adjust UVs and the size of the quad
+                    let ratio = 1. / current_image_size;
+                    if let Some(rect) = extracted_quad.rect {
+                        let rect_size = rect.size();
+                        for uv in &mut uvs {
+                            *uv = (rect.min + *uv * rect_size) * ratio;
+                        }
+                    }
                 }
 
-                // Override the size if a custom one is specified
-                if let Some(custom_size) = extracted_quad.custom_size {
-                    quad_size = custom_size;
-                }
+                let quad_size = extracted_quad.size;
 
                 // Apply size and global transform
                 let positions = QUAD_VERTEX_POSITIONS.map(|quad_pos| {
                     extracted_quad
                         .transform
-                        .mul_vec3(((quad_pos - extracted_quad.anchor) * quad_size).extend(0.))
+                        .mul_vec3((quad_pos * quad_size).extend(0.))
                         .into()
                 });
 
@@ -511,21 +597,21 @@ pub fn queue_quads(
                 let sort_key = FloatOrd(extracted_quad.transform.translation.z);
 
                 // Store the vertex data and add the item to the render phase
-                if current_batch.colored {
+                if current_batch.textured {
                     for i in QUAD_INDICES {
-                        quad_meta.colored_vertices.push(ColoredQuadVertex {
+                        quad_meta.textured_vertices.push(TexturedQuadVertex {
                             position: positions[i],
+                            color: extracted_quad.color.as_linear_rgba_u32(),
                             uv: uvs[i].into(),
-                            color: extracted_quad.color.as_linear_rgba_f32(),
                         });
                     }
-                    let item_start = colored_index;
-                    colored_index += QUAD_INDICES.len() as u32;
-                    let item_end = colored_index;
+                    let item_start = textured_index;
+                    textured_index += QUAD_INDICES.len() as u32;
+                    let item_end = textured_index;
 
                     transparent_phase.add(Transparent2d {
                         draw_function: draw_quads_function,
-                        pipeline: colored_pipeline,
+                        pipeline: textured_pipeline,
                         entity: current_batch_entity,
                         sort_key,
                         batch_range: Some(item_start..item_end),
@@ -534,7 +620,7 @@ pub fn queue_quads(
                     for i in QUAD_INDICES {
                         quad_meta.vertices.push(QuadVertex {
                             position: positions[i],
-                            uv: uvs[i].into(),
+                            color: extracted_quad.color.as_linear_rgba_u32(),
                         });
                     }
                     let item_start = index;
@@ -555,7 +641,12 @@ pub fn queue_quads(
             .vertices
             .write_buffer(&render_device, &render_queue);
         quad_meta
-            .colored_vertices
+            .textured_vertices
             .write_buffer(&render_device, &render_queue);
+        trace!(
+            "quads: non-tex={} tex={}",
+            quad_meta.vertices.len(),
+            quad_meta.textured_vertices.len()
+        );
     }
 }

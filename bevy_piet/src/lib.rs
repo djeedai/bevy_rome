@@ -7,9 +7,9 @@ pub mod prelude {
     pub use crate::render_context::BevyRenderContext;
 }
 
-use render::{DrawPiet, ImageBindGroups, QuadMeta};
+use render::{DrawPiet, ExtractedQuads, ImageBindGroups, QuadAssetEvents, QuadMeta, QuadPipeline};
 
-pub use piet_canvas::PietCanvas;
+pub use piet_canvas::{PietCanvas, Quad};
 pub use render_context::BevyRenderContext;
 
 use bevy::app::prelude::*;
@@ -31,31 +31,31 @@ pub(crate) const QUAD_SHADER_HANDLE: HandleUntyped =
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemLabel)]
 pub enum PietSystem {
-    ExtractSprites,
+    ExtractQuads,
 }
 
 impl Plugin for PietPlugin {
     fn build(&self, app: &mut App) {
-        // let mut shaders = app.world.resource_mut::<Assets<Shader>>();
-        // let sprite_shader = Shader::from_wgsl(include_str!("render/piet.wgsl"));
-        // shaders.set_untracked(QUAD_SHADER_HANDLE, sprite_shader);
+        let mut shaders = app.world.resource_mut::<Assets<Shader>>();
+        let sprite_shader = Shader::from_wgsl(include_str!("quad.wgsl"));
+        shaders.set_untracked(QUAD_SHADER_HANDLE, sprite_shader);
 
-        app.register_type::<PietCanvas>();
+        //app.register_type::<PietCanvas>();
 
         if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
                 .init_resource::<ImageBindGroups>()
-                //.init_resource::<SpritePipeline>()
-                //.init_resource::<SpecializedRenderPipelines<SpritePipeline>>()
+                .init_resource::<QuadPipeline>()
+                .init_resource::<SpecializedRenderPipelines<QuadPipeline>>()
                 .init_resource::<QuadMeta>()
-                //.init_resource::<ExtractedSprites>()
-                //.init_resource::<SpriteAssetEvents>()
+                .init_resource::<ExtractedQuads>()
+                .init_resource::<QuadAssetEvents>()
                 .add_render_command::<Transparent2d, DrawPiet>()
-                // .add_system_to_stage(
-                //     RenderStage::Extract,
-                //     render::extract_quads.label(PietSystem::ExtractQuads),
-                // )
-                //.add_system_to_stage(RenderStage::Extract, render::extract_sprite_events)
+                .add_system_to_stage(
+                    RenderStage::Extract,
+                    render::extract_quads, //.label(PietSystem::ExtractQuads),
+                )
+                .add_system_to_stage(RenderStage::Extract, render::extract_quad_events)
                 .add_system_to_stage(RenderStage::Queue, render::queue_quads);
         };
     }
