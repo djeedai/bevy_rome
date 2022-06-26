@@ -35,6 +35,7 @@ use bevy::{
         view::{Msaa, ViewUniform, ViewUniformOffset, ViewUniforms},
         RenderWorld,
     },
+    sprite::Rect as SRect,
     utils::HashMap,
 };
 use copyless::VecHelper;
@@ -317,11 +318,10 @@ const QUAD_UVS: [Vec2; 4] = [
 
 #[derive(Component, Clone, Copy)]
 pub struct ExtractedQuad {
-    pub transform: GlobalTransform,
+    pub rect: SRect,
     pub color: Color,
     /// Select an area of the texture
-    pub rect: Option<bevy::sprite::Rect>,
-    pub size: Vec2,
+    pub tex_rect: Option<SRect>,
     /// Handle to the `Image` of this quad
     /// PERF: storing a `HandleId` instead of `Handle<Image>` enables some optimizations (`ExtractedQuad` becomes `Copy` and doesn't need to be dropped)
     pub image_handle_id: HandleId,
@@ -330,8 +330,15 @@ pub struct ExtractedQuad {
 }
 
 #[derive(Default)]
-pub struct ExtractedQuads {
+pub struct ExtractedCanvas {
+    pub transform: GlobalTransform,
     pub quads: Vec<ExtractedQuad>,
+}
+
+#[derive(Default)]
+pub struct ExtractedCanvases {
+    /// Map from app world's entity with a canvas to associated render world's extracted canvas.
+    pub canvases: HashMap<Entity, ExtractedCanvas>,
 }
 
 #[derive(Default)]
@@ -366,9 +373,9 @@ pub(crate) fn extract_quad_events(
 
 pub(crate) fn extract_quads(
     mut render_world: ResMut<RenderWorld>,
-    texture_atlases: Res<Assets<TextureAtlas>>,
-    canvas_query: Query<(Option<&Visibility>, &PietCanvas, &GlobalTransform)>,
-    atlas_query: Query<(
+    _texture_atlases: Res<Assets<TextureAtlas>>,
+    canvas_query: Query<(Entity, Option<&Visibility>, &PietCanvas, &GlobalTransform)>,
+    _atlas_query: Query<(
         &Visibility,
         &TextureAtlasSprite,
         &GlobalTransform,
@@ -376,23 +383,31 @@ pub(crate) fn extract_quads(
     )>,
 ) {
     trace!("extract_quads");
-    let mut extracted_quads = render_world.resource_mut::<ExtractedQuads>();
-    extracted_quads.quads.clear();
-    for (opt_visibility, canvas, transform) in canvas_query.iter() {
+    let mut extracted_quads = render_world.resource_mut::<ExtractedCanvases>();
+    extracted_quads.canvases.clear();
+    for (entity, opt_visibility, canvas, transform) in canvas_query.iter() {
         if let Some(visibility) = opt_visibility {
             if !visibility.is_visible {
                 continue;
             }
         }
-        extracted_quads.quads.reserve(canvas.quads().len());
+        let extracted_canvas = extracted_quads
+            .canvases
+            .entry(entity)
+            .or_insert(ExtractedCanvas {
+                transform: *transform,
+                quads: vec![],
+            });
+        extracted_canvas.quads.reserve(canvas.quads().len());
         trace!("canvas: {} quads", canvas.quads().len());
         for quad in canvas.quads() {
-            // PERF: we don't check in this function that the `Image` asset is ready, since it should be in most cases and hashing the handle is expensive
-            extracted_quads.quads.alloc().init(ExtractedQuad {
+            // PERF: we don't check in this function that the `Image` asset is ready, since it should be
+            // in most cases and hashing the handle is expensive
+            trace!("- quad: {:?}", quad);
+            extracted_canvas.quads.alloc().init(ExtractedQuad {
+                rect: quad.rect,
                 color: quad.color,
-                transform: *transform,
-                rect: Some(quad.rect),
-                size: quad.rect.size(),
+                tex_rect: None,
                 flip_x: quad.flip_x,
                 flip_y: quad.flip_y,
                 image_handle_id: HandleId::default::<Image>(), // TODO -- handle.id,
@@ -436,7 +451,7 @@ pub fn queue_quads(
     mut image_bind_groups: ResMut<ImageBindGroups>,
     gpu_images: Res<RenderAssets<Image>>,
     msaa: Res<Msaa>,
-    mut extracted_quads: ResMut<ExtractedQuads>,
+    mut extracted_canvases: ResMut<ExtractedCanvases>,
     mut views: Query<&mut RenderPhase<Transparent2d>>,
     events: Res<QuadAssetEvents>,
 ) {
@@ -482,158 +497,162 @@ pub fn queue_quads(
 
         // FIXME: VisibleEntities is ignored
         for mut transparent_phase in views.iter_mut() {
-            let extracted_quads = &mut extracted_quads.quads;
-            let image_bind_groups = &mut *image_bind_groups;
+            for extracted_canvas in extracted_canvases.canvases.values_mut() {
+                let extracted_quads = &mut extracted_canvas.quads;
+                let image_bind_groups = &mut *image_bind_groups;
 
-            transparent_phase.items.reserve(extracted_quads.len());
+                transparent_phase.items.reserve(extracted_quads.len());
 
-            // Sort quads by z for correct transparency and then by handle to improve batching
-            extracted_quads.sort_unstable_by(|a, b| {
-                match a
-                    .transform
-                    .translation
-                    .z
-                    .partial_cmp(&b.transform.translation.z)
-                {
-                    Some(std::cmp::Ordering::Equal) | None => {
-                        a.image_handle_id.cmp(&b.image_handle_id)
-                    }
-                    Some(other) => other,
-                }
-            });
+                // // Sort quads by z for correct transparency and then by handle to improve batching
+                // extracted_quads.sort_unstable_by(|a, b| {
+                //     match a
+                //         .transform
+                //         .translation
+                //         .z
+                //         .partial_cmp(&b.transform.translation.z)
+                //     {
+                //         Some(std::cmp::Ordering::Equal) | None => {
+                //             a.image_handle_id.cmp(&b.image_handle_id)
+                //         }
+                //         Some(other) => other,
+                //     }
+                // });
 
-            // Impossible starting values that will be replaced on the first iteration
-            let mut current_batch = QuadBatch {
-                image_handle_id: HandleId::Id(Uuid::nil(), u64::MAX),
-                textured: false,
-            };
-            let mut current_batch_entity = Entity::from_raw(u32::MAX);
-            let mut current_image_size = Vec2::ZERO;
-            // Add a phase item for each quad, and detect when succesive items can be batched.
-            // Spawn an entity with a `QuadBatch` component for each possible batch.
-            // Compatible items share the same entity.
-            // Batches are merged later (in `batch_phase_system()`), so that they can be interrupted
-            // by any other phase item (and they can interrupt other items from batching).
-            for extracted_quad in extracted_quads.iter() {
-                let new_batch = QuadBatch {
-                    image_handle_id: extracted_quad.image_handle_id,
-                    textured: extracted_quad.image_handle_id != HandleId::default::<Image>(),
+                // Impossible starting values that will be replaced on the first iteration
+                let mut current_batch = QuadBatch {
+                    image_handle_id: HandleId::Id(Uuid::nil(), u64::MAX),
+                    textured: false,
                 };
-                if new_batch != current_batch {
-                    if new_batch.textured {
-                        // Set-up a new possible batch
-                        if let Some(gpu_image) =
-                            gpu_images.get(&Handle::weak(new_batch.image_handle_id))
-                        {
-                            current_batch = new_batch;
-                            current_image_size =
-                                Vec2::new(gpu_image.size.width, gpu_image.size.height);
-                            current_batch_entity = commands.spawn_bundle((current_batch,)).id();
+                let mut current_batch_entity = Entity::from_raw(u32::MAX);
+                let mut current_image_size = Vec2::ZERO;
+                // Add a phase item for each quad, and detect when succesive items can be batched.
+                // Spawn an entity with a `QuadBatch` component for each possible batch.
+                // Compatible items share the same entity.
+                // Batches are merged later (in `batch_phase_system()`), so that they can be interrupted
+                // by any other phase item (and they can interrupt other items from batching).
+                for extracted_quad in extracted_quads.iter() {
+                    let new_batch = QuadBatch {
+                        image_handle_id: extracted_quad.image_handle_id,
+                        textured: extracted_quad.image_handle_id != HandleId::default::<Image>(),
+                    };
+                    if new_batch != current_batch {
+                        if new_batch.textured {
+                            // Set-up a new possible batch
+                            if let Some(gpu_image) =
+                                gpu_images.get(&Handle::weak(new_batch.image_handle_id))
+                            {
+                                current_batch = new_batch;
+                                current_image_size =
+                                    Vec2::new(gpu_image.size.width, gpu_image.size.height);
+                                current_batch_entity = commands.spawn_bundle((current_batch,)).id();
 
-                            image_bind_groups
-                                .values
-                                .entry(Handle::weak(current_batch.image_handle_id))
-                                .or_insert_with(|| {
-                                    render_device.create_bind_group(&BindGroupDescriptor {
-                                        entries: &[
-                                            BindGroupEntry {
-                                                binding: 0,
-                                                resource: BindingResource::TextureView(
-                                                    &gpu_image.texture_view,
-                                                ),
-                                            },
-                                            BindGroupEntry {
-                                                binding: 1,
-                                                resource: BindingResource::Sampler(
-                                                    &gpu_image.sampler,
-                                                ),
-                                            },
-                                        ],
-                                        label: Some("quad_material_bind_group"),
-                                        layout: &quad_pipeline.material_layout,
-                                    })
-                                });
+                                image_bind_groups
+                                    .values
+                                    .entry(Handle::weak(current_batch.image_handle_id))
+                                    .or_insert_with(|| {
+                                        render_device.create_bind_group(&BindGroupDescriptor {
+                                            entries: &[
+                                                BindGroupEntry {
+                                                    binding: 0,
+                                                    resource: BindingResource::TextureView(
+                                                        &gpu_image.texture_view,
+                                                    ),
+                                                },
+                                                BindGroupEntry {
+                                                    binding: 1,
+                                                    resource: BindingResource::Sampler(
+                                                        &gpu_image.sampler,
+                                                    ),
+                                                },
+                                            ],
+                                            label: Some("quad_material_bind_group"),
+                                            layout: &quad_pipeline.material_layout,
+                                        })
+                                    });
+                            } else {
+                                // Skip this item if the texture is not ready
+                                continue;
+                            }
                         } else {
-                            // Skip this item if the texture is not ready
-                            continue;
+                            current_batch = new_batch;
+                            current_batch_entity = commands.spawn_bundle((current_batch,)).id();
                         }
+                    }
+
+                    let mut uvs = QUAD_UVS;
+                    if current_batch.textured {
+                        // Calculate vertex data for this item
+                        if extracted_quad.flip_x {
+                            uvs = [uvs[1], uvs[0], uvs[3], uvs[2]];
+                        }
+                        if extracted_quad.flip_y {
+                            uvs = [uvs[3], uvs[2], uvs[1], uvs[0]];
+                        }
+
+                        // If a rect is specified, adjust UVs and the size of the quad
+                        let ratio = 1. / current_image_size;
+                        if let Some(rect) = extracted_quad.tex_rect {
+                            let rect_size = rect.size();
+                            for uv in &mut uvs {
+                                *uv = (rect.min + *uv * rect_size) * ratio;
+                            }
+                        }
+                    }
+
+                    let quad_size = extracted_quad.rect.size();
+                    let quad_center = (extracted_quad.rect.min + extracted_quad.rect.max) * 0.5;
+                    trace!("quad: center={:?} size={:?}", quad_center, quad_size);
+
+                    // Apply size and global transform
+                    let positions = QUAD_VERTEX_POSITIONS.map(|quad_pos| {
+                        extracted_canvas
+                            .transform
+                            .mul_vec3((quad_pos * quad_size + quad_center).extend(0.))
+                            .into()
+                    });
+
+                    // These items will be sorted by depth with other phase items
+                    let sort_key = FloatOrd(extracted_canvas.transform.translation.z);
+
+                    // Store the vertex data and add the item to the render phase
+                    if current_batch.textured {
+                        for i in QUAD_INDICES {
+                            quad_meta.textured_vertices.push(TexturedQuadVertex {
+                                position: positions[i],
+                                color: extracted_quad.color.as_linear_rgba_u32(),
+                                uv: uvs[i].into(),
+                            });
+                        }
+                        let item_start = textured_index;
+                        textured_index += QUAD_INDICES.len() as u32;
+                        let item_end = textured_index;
+
+                        transparent_phase.add(Transparent2d {
+                            draw_function: draw_quads_function,
+                            pipeline: textured_pipeline,
+                            entity: current_batch_entity,
+                            sort_key,
+                            batch_range: Some(item_start..item_end),
+                        });
                     } else {
-                        current_batch = new_batch;
-                        current_batch_entity = commands.spawn_bundle((current_batch,)).id();
-                    }
-                }
-
-                let mut uvs = QUAD_UVS;
-                if current_batch.textured {
-                    // Calculate vertex data for this item
-                    if extracted_quad.flip_x {
-                        uvs = [uvs[1], uvs[0], uvs[3], uvs[2]];
-                    }
-                    if extracted_quad.flip_y {
-                        uvs = [uvs[3], uvs[2], uvs[1], uvs[0]];
-                    }
-
-                    // If a rect is specified, adjust UVs and the size of the quad
-                    let ratio = 1. / current_image_size;
-                    if let Some(rect) = extracted_quad.rect {
-                        let rect_size = rect.size();
-                        for uv in &mut uvs {
-                            *uv = (rect.min + *uv * rect_size) * ratio;
+                        for i in QUAD_INDICES {
+                            quad_meta.vertices.push(QuadVertex {
+                                position: positions[i],
+                                color: extracted_quad.color.as_linear_rgba_u32(),
+                            });
                         }
-                    }
-                }
+                        let item_start = index;
+                        index += QUAD_INDICES.len() as u32;
+                        let item_end = index;
 
-                let quad_size = extracted_quad.size;
-
-                // Apply size and global transform
-                let positions = QUAD_VERTEX_POSITIONS.map(|quad_pos| {
-                    extracted_quad
-                        .transform
-                        .mul_vec3((quad_pos * quad_size).extend(0.))
-                        .into()
-                });
-
-                // These items will be sorted by depth with other phase items
-                let sort_key = FloatOrd(extracted_quad.transform.translation.z);
-
-                // Store the vertex data and add the item to the render phase
-                if current_batch.textured {
-                    for i in QUAD_INDICES {
-                        quad_meta.textured_vertices.push(TexturedQuadVertex {
-                            position: positions[i],
-                            color: extracted_quad.color.as_linear_rgba_u32(),
-                            uv: uvs[i].into(),
+                        transparent_phase.add(Transparent2d {
+                            draw_function: draw_quads_function,
+                            pipeline,
+                            entity: current_batch_entity,
+                            sort_key,
+                            batch_range: Some(item_start..item_end),
                         });
                     }
-                    let item_start = textured_index;
-                    textured_index += QUAD_INDICES.len() as u32;
-                    let item_end = textured_index;
-
-                    transparent_phase.add(Transparent2d {
-                        draw_function: draw_quads_function,
-                        pipeline: textured_pipeline,
-                        entity: current_batch_entity,
-                        sort_key,
-                        batch_range: Some(item_start..item_end),
-                    });
-                } else {
-                    for i in QUAD_INDICES {
-                        quad_meta.vertices.push(QuadVertex {
-                            position: positions[i],
-                            color: extracted_quad.color.as_linear_rgba_u32(),
-                        });
-                    }
-                    let item_start = index;
-                    index += QUAD_INDICES.len() as u32;
-                    let item_end = index;
-
-                    transparent_phase.add(Transparent2d {
-                        draw_function: draw_quads_function,
-                        pipeline,
-                        entity: current_batch_entity,
-                        sort_key,
-                        batch_range: Some(item_start..item_end),
-                    });
                 }
             }
         }

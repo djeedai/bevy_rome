@@ -7,13 +7,13 @@ use bevy::{
         render_resource::WgpuFeatures,
         settings::{PowerPreference, WgpuSettings},
     },
-    sprite::MaterialMesh2dBundle,
+    sprite::{MaterialMesh2dBundle, Rect as SRect},
 };
 use bevy_inspector_egui::WorldInspectorPlugin;
 
 use bevy_piet::*;
 use piet::RenderContext;
-use kurbo::Rect;
+use kurbo::Rect as KRect;
 
 fn main() {
     App::default()
@@ -41,12 +41,16 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let mut camera = OrthographicCameraBundle::new_2d();
+    //let mut canvas = PietCanvas::from_projection(&camera.orthographic_projection);
     // camera.orthographic_projection.scale = 1.0;
     // camera.orthographic_projection.scaling_mode = ScalingMode::FixedVertical;
     // camera.transform.translation.z = camera.orthographic_projection.far / 2.0;
     commands.spawn_bundle(camera);
 
-    let mut canvas = PietCanvas::default();
+    let mut canvas = PietCanvas::new(SRect {
+        min: Vec2::splat(-400.),
+        max: Vec2::splat(100.),
+    });
 
     // canvas.quads_vec().push(Quad {
     //     rect: bevy::sprite::Rect {
@@ -65,12 +69,13 @@ fn setup(
 
 fn run(mut query: Query<&mut PietCanvas>) {
     let mut canvas = query.single_mut();
-    canvas.clear();
+    //canvas.clear();
     let mut ctx = canvas.render_context();
+    ctx.clear(None, piet::Color::FUCHSIA);
     let brush = ctx.solid_brush(piet::Color::AQUA);
-    let rect = Rect::new(-10., -30., 20., 100.);
+    let rect = KRect::new(-10., -30., 20., 100.);
     ctx.fill(rect, &brush);
     let brush = ctx.solid_brush(piet::Color::RED);
-    let rect = Rect::new(0., 0., 50., 50.);
+    let rect = KRect::new(0., 0., 50., 50.);
     ctx.fill(rect, &brush);
 }

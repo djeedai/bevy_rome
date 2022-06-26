@@ -8,6 +8,26 @@ use piet::{FixedGradient, HitTestPoint, HitTestPosition, IntoBrush, LineMetric};
 
 use crate::piet_canvas::{PietCanvas, Quad};
 
+trait KurboRectEx {
+    fn from_sprite(rect: bevy::sprite::Rect) -> kurbo::Rect;
+    fn into_sprite(rect: kurbo::Rect) -> bevy::sprite::Rect;
+}
+
+impl KurboRectEx for kurbo::Rect {
+    fn from_sprite(rect: bevy::sprite::Rect) -> kurbo::Rect {
+        let min = rect.min.as_dvec2().to_array();
+        let max = rect.max.as_dvec2().to_array();
+        kurbo::Rect::new(min[0], min[1], max[0], max[1])
+    }
+
+    fn into_sprite(rect: kurbo::Rect) -> bevy::sprite::Rect {
+        bevy::sprite::Rect {
+            min: Vec2::new(rect.x0 as f32, rect.y0 as f32),
+            max: Vec2::new(rect.x1 as f32, rect.y1 as f32),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BevyBrush {
     color: piet::Color,
@@ -205,7 +225,13 @@ impl<'q> piet::RenderContext for BevyRenderContext<'q> {
     }
 
     fn clear(&mut self, region: impl Into<Option<Rect>>, color: piet::Color) {
-        unimplemented!()
+        if let Some(rect) = region.into() {
+            // TODO - delete primitives covered by region
+            self.fill(rect, &color);
+        } else {
+            self.canvas.clear();
+            self.fill(kurbo::Rect::from_sprite(self.canvas.rect()), &color);
+        }
     }
 
     fn stroke(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>, width: f64) {

@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_mut, unused_imports)]
+
 mod piet_canvas;
 mod render;
 mod render_context;
@@ -7,7 +9,7 @@ pub mod prelude {
     pub use crate::render_context::BevyRenderContext;
 }
 
-use render::{DrawPiet, ExtractedQuads, ImageBindGroups, QuadAssetEvents, QuadMeta, QuadPipeline};
+use render::{DrawPiet, ExtractedCanvases, ImageBindGroups, QuadAssetEvents, QuadMeta, QuadPipeline};
 
 pub use piet_canvas::{PietCanvas, Quad};
 pub use render_context::BevyRenderContext;
@@ -48,7 +50,7 @@ impl Plugin for PietPlugin {
                 .init_resource::<QuadPipeline>()
                 .init_resource::<SpecializedRenderPipelines<QuadPipeline>>()
                 .init_resource::<QuadMeta>()
-                .init_resource::<ExtractedQuads>()
+                .init_resource::<ExtractedCanvases>()
                 .init_resource::<QuadAssetEvents>()
                 .add_render_command::<Transparent2d, DrawPiet>()
                 .add_system_to_stage(
