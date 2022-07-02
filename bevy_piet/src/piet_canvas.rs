@@ -8,6 +8,14 @@ use bevy::{
 use crate::render_context::BevyRenderContext;
 
 #[derive(Debug, Default, Clone, Copy)]
+pub struct Line {
+    pub start: Vec2,
+    pub end: Vec2,
+    pub color: Color,
+    pub thickness: f32,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Quad {
     pub rect: Rect,
     pub color: Color,
@@ -25,7 +33,8 @@ impl Quad {
 #[derive(Component, Debug, Default)]
 pub struct PietCanvas {
     rect: Rect,
-    quads: Vec<Quad>,
+    pub(crate) lines: Vec<Line>,
+    pub(crate) quads: Vec<Quad>,
 }
 
 impl PietCanvas {
@@ -54,6 +63,7 @@ impl PietCanvas {
     }
 
     pub fn clear(&mut self) {
+        self.lines.clear();
         self.quads.clear();
     }
 

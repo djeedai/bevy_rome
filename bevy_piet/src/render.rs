@@ -11,7 +11,7 @@ use bevy::{
         },
         world::{FromWorld, World},
     },
-    math::const_vec2,
+    math::{const_vec2, Mat2},
     prelude::*,
     reflect::Uuid,
     render::{
@@ -42,7 +42,7 @@ use copyless::VecHelper;
 
 use crate::{PietCanvas, QUAD_SHADER_HANDLE};
 
-pub type DrawPiet = (
+pub type DrawQuad = (
     SetItemPipeline,
     SetQuadViewBindGroup<0>,
     SetQuadTextureBindGroup<1>,
@@ -120,6 +120,31 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawQuadBatch {
     }
 }
 
+pub type DrawLine = (
+    SetItemPipeline,
+    SetQuadViewBindGroup<0>,
+    DrawLineBatch,
+);
+
+pub struct DrawLineBatch;
+
+impl<P: BatchedPhaseItem> RenderCommand<P> for DrawLineBatch {
+    type Param = (SRes<QuadMeta>, SQuery<Read<LineBatch>>);
+
+    fn render<'w>(
+        _view: Entity,
+        item: &P,
+        (quad_meta, query_batch): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let line_batch = query_batch.get(item.entity()).unwrap();
+        let quad_meta = quad_meta.into_inner();
+        pass.set_vertex_buffer(0, quad_meta.vertices.buffer().unwrap().slice(..));
+        pass.draw(item.batch_range().as_ref().unwrap().clone(), 0..1);
+        RenderCommandResult::Success
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct QuadVertex {
@@ -140,6 +165,9 @@ pub struct QuadBatch {
     image_handle_id: HandleId,
     textured: bool,
 }
+
+#[derive(Component, Eq, PartialEq, Copy, Clone)]
+pub struct LineBatch;
 
 pub struct QuadMeta {
     vertices: BufferVec<QuadVertex>,
@@ -329,10 +357,19 @@ pub struct ExtractedQuad {
     pub flip_y: bool,
 }
 
+#[derive(Component, Clone, Copy)]
+pub struct ExtractedLine {
+    pub start: Vec2,
+    pub end: Vec2,
+    pub color: Color,
+    pub thickness: f32,
+}
+
 #[derive(Default)]
 pub struct ExtractedCanvas {
     pub transform: GlobalTransform,
     pub quads: Vec<ExtractedQuad>,
+    pub lines: Vec<ExtractedLine>,
 }
 
 #[derive(Default)]
@@ -396,11 +433,11 @@ pub(crate) fn extract_quads(
             .entry(entity)
             .or_insert(ExtractedCanvas {
                 transform: *transform,
-                quads: vec![],
+                ..Default::default()
             });
-        extracted_canvas.quads.reserve(canvas.quads().len());
-        trace!("canvas: {} quads", canvas.quads().len());
-        for quad in canvas.quads() {
+        extracted_canvas.quads.reserve(canvas.quads.len());
+        trace!("canvas: {} quads", canvas.quads.len());
+        for quad in &canvas.quads {
             // PERF: we don't check in this function that the `Image` asset is ready, since it should be
             // in most cases and hashing the handle is expensive
             trace!("- quad: {:?}", quad);
@@ -411,6 +448,17 @@ pub(crate) fn extract_quads(
                 flip_x: quad.flip_x,
                 flip_y: quad.flip_y,
                 image_handle_id: HandleId::default::<Image>(), // TODO -- handle.id,
+            });
+        }
+        extracted_canvas.lines.reserve(canvas.lines.len());
+        trace!("canvas: {} lines", canvas.lines.len());
+        for line in &canvas.lines {
+            trace!("- line: {:?}", line);
+            extracted_canvas.lines.alloc().init(ExtractedLine {
+                start: line.start,
+                end: line.end,
+                color: line.color,
+                thickness: line.thickness,
             });
         }
     }
@@ -482,7 +530,8 @@ pub fn queue_quads(
             layout: &quad_pipeline.view_layout,
         }));
 
-        let draw_quads_function = draw_functions.read().get_id::<DrawPiet>().unwrap();
+        let draw_quads_function = draw_functions.read().get_id::<DrawQuad>().unwrap();
+        let draw_lines_function = draw_functions.read().get_id::<DrawLine>().unwrap();
         let key = QuadPipelineKey::from_msaa_samples(msaa.samples);
         let pipeline = pipelines.specialize(&mut pipeline_cache, &quad_pipeline, key);
         let textured_pipeline = pipelines.specialize(
@@ -499,9 +548,12 @@ pub fn queue_quads(
         for mut transparent_phase in views.iter_mut() {
             for extracted_canvas in extracted_canvases.canvases.values_mut() {
                 let extracted_quads = &mut extracted_canvas.quads;
+                let extracted_lines = &mut extracted_canvas.lines;
                 let image_bind_groups = &mut *image_bind_groups;
 
-                transparent_phase.items.reserve(extracted_quads.len());
+                transparent_phase
+                    .items
+                    .reserve(extracted_quads.len() + extracted_lines.len());
 
                 // // Sort quads by z for correct transparency and then by handle to improve batching
                 // extracted_quads.sort_unstable_by(|a, b| {
@@ -654,6 +706,64 @@ pub fn queue_quads(
                         });
                     }
                 }
+
+                // Lines, all as a single batch
+                let line_batch_entity = commands.spawn().insert(LineBatch).id();
+                let item_start = index;
+                for extracted_line in extracted_lines.iter() {
+                    trace!(
+                        "line: s={:?} e={:?}",
+                        extracted_line.start,
+                        extracted_line.end
+                    );
+
+                    // Compute line directions
+                    let dir = if let Some(dir) =
+                        (extracted_line.end - extracted_line.start).try_normalize()
+                    {
+                        dir
+                    } else {
+                        continue;
+                    };
+                    let normal = dir.perp();
+                    let mat2 = Mat2::from_cols(
+                        extracted_line.end - extracted_line.start,
+                        normal * extracted_line.thickness,
+                    );
+
+                    let quad_center = (extracted_line.start + extracted_line.end) * 0.5;
+
+                    // Apply size and global transform
+                    let positions = QUAD_VERTEX_POSITIONS.map(|quad_pos| {
+                        extracted_canvas
+                            .transform
+                            .mul_vec3((mat2.mul_vec2(quad_pos) + quad_center).extend(0.))
+                            .into()
+                    });
+
+                    // Store the vertex data and add the item to the render phase
+                    for i in QUAD_INDICES {
+                        quad_meta.vertices.push(QuadVertex {
+                            position: positions[i],
+                            color: extracted_line.color.as_linear_rgba_u32(),
+                        });
+                    }
+                    index += QUAD_INDICES.len() as u32;
+                }
+                let item_end = index;
+                if item_end > item_start {
+                    // These items will be sorted by depth with other phase items
+                    // TODO - unused? Painter's algorithm is already sorted, but maybe need to sort w.r.t. other 2D elements?
+                    let sort_key = FloatOrd(extracted_canvas.transform.translation.z);
+
+                    transparent_phase.add(Transparent2d {
+                        draw_function: draw_lines_function,
+                        pipeline,
+                        entity: line_batch_entity,
+                        sort_key,
+                        batch_range: Some(item_start..item_end),
+                    });
+                }
             }
         }
         quad_meta
@@ -663,7 +773,7 @@ pub fn queue_quads(
             .textured_vertices
             .write_buffer(&render_device, &render_queue);
         trace!(
-            "quads: non-tex={} tex={}",
+            "verts: non-tex={} tex={}",
             quad_meta.vertices.len(),
             quad_meta.textured_vertices.len()
         );

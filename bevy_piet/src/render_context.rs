@@ -1,27 +1,27 @@
 #![allow(unused_variables, dead_code, unused_imports)]
 
-use std::ops::RangeBounds;
+use std::{ops::RangeBounds, str, sync::Arc};
 //use bevy::prelude::*;
-use bevy::{math::Vec2, render::render_resource::Buffer};
-use kurbo::{Affine, Point, Rect, Shape, Size};
+use bevy::{math::Vec2, render::render_resource::Buffer, sprite::Rect as SRect, text::Font, utils::HashMap};
+use kurbo::{Affine, Line, Point, Rect as KRect, Shape, Size};
 use piet::{FixedGradient, HitTestPoint, HitTestPosition, IntoBrush, LineMetric};
 
 use crate::piet_canvas::{PietCanvas, Quad};
 
 trait KurboRectEx {
-    fn from_sprite(rect: bevy::sprite::Rect) -> kurbo::Rect;
-    fn into_sprite(rect: kurbo::Rect) -> bevy::sprite::Rect;
+    fn from_sprite(rect: SRect) -> KRect;
+    fn into_sprite(rect: KRect) -> SRect;
 }
 
-impl KurboRectEx for kurbo::Rect {
-    fn from_sprite(rect: bevy::sprite::Rect) -> kurbo::Rect {
+impl KurboRectEx for KRect {
+    fn from_sprite(rect: SRect) -> KRect {
         let min = rect.min.as_dvec2().to_array();
         let max = rect.max.as_dvec2().to_array();
-        kurbo::Rect::new(min[0], min[1], max[0], max[1])
+        KRect::new(min[0], min[1], max[0], max[1])
     }
 
-    fn into_sprite(rect: kurbo::Rect) -> bevy::sprite::Rect {
-        bevy::sprite::Rect {
+    fn into_sprite(rect: KRect) -> SRect {
+        SRect {
             min: Vec2::new(rect.x0 as f32, rect.y0 as f32),
             max: Vec2::new(rect.x1 as f32, rect.y1 as f32),
         }
@@ -51,7 +51,7 @@ impl<'q> IntoBrush<BevyRenderContext<'q>> for BevyBrush {
     fn make_brush<'b>(
         &'b self,
         _piet: &mut BevyRenderContext,
-        _bbox: impl FnOnce() -> Rect,
+        _bbox: impl FnOnce() -> KRect,
     ) -> std::borrow::Cow<'b, BevyBrush> {
         std::borrow::Cow::Borrowed(self)
     }
@@ -84,7 +84,7 @@ impl piet::TextLayout for BevyTextLayout {
     fn trailing_whitespace_width(&self) -> f64 {
         unimplemented!()
     }
-    fn image_bounds(&self) -> Rect {
+    fn image_bounds(&self) -> KRect {
         unimplemented!()
     }
     fn text(&self) -> &str {
@@ -105,7 +105,7 @@ impl piet::TextLayout for BevyTextLayout {
     fn hit_test_text_position(&self, idx: usize) -> HitTestPosition {
         unimplemented!()
     }
-    fn rects_for_range(&self, range: impl RangeBounds<usize>) -> Vec<Rect> {
+    fn rects_for_range(&self, range: impl RangeBounds<usize>) -> Vec<KRect> {
         unimplemented!()
     }
 }
@@ -224,18 +224,32 @@ impl<'q> piet::RenderContext for BevyRenderContext<'q> {
         unimplemented!()
     }
 
-    fn clear(&mut self, region: impl Into<Option<Rect>>, color: piet::Color) {
+    fn clear(&mut self, region: impl Into<Option<kurbo::Rect>>, color: piet::Color) {
         if let Some(rect) = region.into() {
             // TODO - delete primitives covered by region
             self.fill(rect, &color);
         } else {
             self.canvas.clear();
-            self.fill(kurbo::Rect::from_sprite(self.canvas.rect()), &color);
+            self.fill(KRect::from_sprite(self.canvas.rect()), &color);
         }
     }
 
     fn stroke(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>, width: f64) {
-        unimplemented!()
+        let brush = brush.make_brush(self, || shape.bounding_box());
+        let color = brush.color().as_rgba();
+        if let Some(line) = shape.as_line() {
+            self.canvas.lines.push(crate::piet_canvas::Line {
+                start: Vec2::new(line.p0.x as f32, line.p0.y as f32),
+                end: Vec2::new(line.p1.x as f32, line.p1.y as f32),
+                color: bevy::render::color::Color::rgba_linear(
+                    color.0 as f32,
+                    color.1 as f32,
+                    color.2 as f32,
+                    color.3 as f32,
+                ),
+                thickness: width as f32,
+            });
+        }
     }
 
     fn stroke_styled(
@@ -253,7 +267,7 @@ impl<'q> piet::RenderContext for BevyRenderContext<'q> {
         let color = brush.color().as_rgba();
         if let Some(rect) = shape.as_rect() {
             self.canvas.quads_vec().push(Quad {
-                rect: bevy::sprite::Rect {
+                rect: SRect {
                     min: Vec2::new(rect.x0 as f32, rect.y0 as f32),
                     max: Vec2::new(rect.x1 as f32, rect.y1 as f32),
                 },
@@ -266,6 +280,8 @@ impl<'q> piet::RenderContext for BevyRenderContext<'q> {
                 flip_x: false,
                 flip_y: false,
             });
+        } else if let Some(line) = shape.as_line() {
+            // nothing to do; cannot "fill" a line, only stroke it
         } else {
             unimplemented!()
         }
@@ -320,7 +336,7 @@ impl<'q> piet::RenderContext for BevyRenderContext<'q> {
     fn draw_image(
         &mut self,
         image: &Self::Image,
-        dst_rect: impl Into<Rect>,
+        dst_rect: impl Into<KRect>,
         interp: piet::InterpolationMode,
     ) {
         unimplemented!()
@@ -329,8 +345,8 @@ impl<'q> piet::RenderContext for BevyRenderContext<'q> {
     fn draw_image_area(
         &mut self,
         image: &Self::Image,
-        src_rect: impl Into<Rect>,
-        dst_rect: impl Into<Rect>,
+        src_rect: impl Into<KRect>,
+        dst_rect: impl Into<KRect>,
         interp: piet::InterpolationMode,
     ) {
         unimplemented!()
@@ -338,12 +354,12 @@ impl<'q> piet::RenderContext for BevyRenderContext<'q> {
 
     fn capture_image_area(
         &mut self,
-        src_rect: impl Into<Rect>,
+        src_rect: impl Into<KRect>,
     ) -> Result<Self::Image, piet::Error> {
         unimplemented!()
     }
 
-    fn blurred_rect(&mut self, rect: Rect, blur_radius: f64, brush: &impl IntoBrush<Self>) {
+    fn blurred_rect(&mut self, rect: KRect, blur_radius: f64, brush: &impl IntoBrush<Self>) {
         unimplemented!()
     }
 }

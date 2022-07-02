@@ -12,8 +12,8 @@ use bevy::{
 use bevy_inspector_egui::WorldInspectorPlugin;
 
 use bevy_piet::*;
+use kurbo::{Line as KLine, Point as KPoint, Rect as KRect};
 use piet::RenderContext;
-use kurbo::Rect as KRect;
 
 fn main() {
     App::default()
@@ -71,11 +71,18 @@ fn run(mut query: Query<&mut PietCanvas>) {
     let mut canvas = query.single_mut();
     //canvas.clear();
     let mut ctx = canvas.render_context();
+
     ctx.clear(None, piet::Color::FUCHSIA);
+
     let brush = ctx.solid_brush(piet::Color::AQUA);
     let rect = KRect::new(-10., -30., 20., 100.);
     ctx.fill(rect, &brush);
+
     let brush = ctx.solid_brush(piet::Color::RED);
     let rect = KRect::new(0., 0., 50., 50.);
     ctx.fill(rect, &brush);
+
+    let brush = ctx.solid_brush(piet::Color::GREEN);
+    let line = KLine::new(KPoint::new(-10., -30.), KPoint::new(20., 100.));
+    ctx.stroke(line, &brush, 13.);
 }
