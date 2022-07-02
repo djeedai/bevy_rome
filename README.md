@@ -2,10 +2,10 @@
 
 A collection of prototype crates toward a Bevy Editor.
 
-| Library | Crate | Status |
-|---|---|---|
-| [🏛️ Bevy Rome](#🏛️-bevy-rome) | 📦 `bevy_rome` | 🚧 in progress |
-| [🎨 Bevy Piet](#🎨-bevy-piet) | 📦 `bevy_piet` | ❌ abandonned |
+| Library | Crate | Status | Description |
+|---|---|---|---|
+| [🏛️ Bevy Rome](#🏛️-bevy-rome) | 📦 `bevy_rome` | 🚧 in progress | Message passing and `Reflect`-based diff |
+| [🎨 Bevy Piet](#🎨-bevy-piet) | 📦 `bevy_piet` | ❌ abandonned | Piet 2D graphics backend via Bevy |
 
 The vision for the Editor is described in [`docs/editor.md`](./docs/editor.md).
 
