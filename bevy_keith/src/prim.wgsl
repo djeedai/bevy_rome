@@ -88,20 +88,21 @@ fn vertex(
     // }
     if (vertex_index == 0u)
     {
-        vertex_position = vec2<f32>(-100., -100.)
+        vertex_position = vec2<f32>(-100., -100.);
     }
     else if (vertex_index == 1u)
     {
-        vertex_position = vec2<f32>(100., -100.)
+        vertex_position = vec2<f32>(100., -100.);
     }
     else if (vertex_index == 2u)
     {
-        vertex_position = vec2<f32>(100., 100.)
+        vertex_position = vec2<f32>(100., 100.);
     }
     else if (vertex_index == 3u)
     {
-        vertex_position = vec2<f32>(-100., 100.)
+        vertex_position = vec2<f32>(-100., 100.);
     }
+    vertex_color = vec4<f32>(1., 1., 1., 1.);
     out.position = view.view_proj * vec4<f32>(vertex_position, 0.0, 1.0);
     out.color = vertex_color;
 #ifdef TEXTURED

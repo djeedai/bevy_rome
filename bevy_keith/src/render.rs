@@ -85,13 +85,22 @@ impl<const I: usize> EntityRenderCommand for SetPrimitiveBufferBindGroup<I> {
     fn render<'w>(
         _view: Entity,
         item: Entity,
-        (primitive_meta, _batch_query): SystemParamItem<'w, '_, Self::Param>,
+        (primitive_meta, batch_query): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        //let primitive_batch = batch_query.get(item).unwrap();
-        trace!("SetPrimitiveBufferBindGroup: I={}", I);
-        if let Some(bind_group) = primitive_meta.into_inner().primitive_bind_groups.get(&item) {
-            pass.set_bind_group(I, bind_group, &[]);
+        let primitive_batch = batch_query.get(item).unwrap();
+        trace!(
+            "SetPrimitiveBufferBindGroup: I={} item={:?} canvas_entity={:?}",
+            I,
+            item,
+            primitive_batch.canvas_entity
+        );
+        if let Some(canvas_meta) = primitive_meta
+            .into_inner()
+            .canvas_meta
+            .get(&primitive_batch.canvas_entity)
+        {
+            pass.set_bind_group(I, &canvas_meta.primitive_bind_group, &[]);
             trace!("SetPrimitiveBufferBindGroup: SUCCESS");
             RenderCommandResult::Success
         } else {
@@ -136,10 +145,10 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
     fn render<'w>(
         _view: Entity,
         item: &P,
-        (primitive_meta, _query_batch): SystemParamItem<'w, '_, Self::Param>,
+        (primitive_meta, query_batch): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        //let primitive_batch = query_batch.get(item.entity()).unwrap();
+        let primitive_batch = query_batch.get(item.entity()).unwrap();
         let primitive_meta = primitive_meta.into_inner();
         // if primitive_batch.textured {
         //     pass.set_vertex_buffer(
@@ -149,19 +158,26 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
         // } else {
         //     pass.set_vertex_buffer(0, primitive_meta.vertices.buffer().unwrap().slice(..));
         // }
-        pass.set_index_buffer(
-            primitive_meta
-                .index_buffers
-                .get(&item.entity())
-                .unwrap()
-                .slice(..),
-            0u64,
-            IndexFormat::Uint32,
-        );
-        let range = item.batch_range().as_ref().unwrap().clone();
-        trace!("DrawPrimitiveBatch: range={:?}", range);
-        pass.draw_indexed(range, 0, 0..1);
-        RenderCommandResult::Success
+        if let Some(canvas_meta) = primitive_meta
+            .canvas_meta
+            .get(&primitive_batch.canvas_entity)
+        {
+            pass.set_index_buffer(
+                canvas_meta.index_buffer.slice(..),
+                0u64,
+                IndexFormat::Uint32,
+            );
+            let indices = item.batch_range().as_ref().unwrap().clone();
+            trace!("DrawPrimitiveBatch: indices={:?}", indices);
+            pass.draw_indexed(indices, 0, 0..1);
+            RenderCommandResult::Success
+        } else {
+            error!(
+                "DrawPrimitiveBatch: Cannot find canvas meta for canvas entity {:?}",
+                primitive_batch.canvas_entity
+            );
+            RenderCommandResult::Failure
+        }
     }
 }
 
@@ -170,20 +186,28 @@ pub struct PrimitiveBatch {
     //image_handle_id: HandleId,
     //textured: bool,
     index_buffer: Buffer,
+    canvas_entity: Entity,
 }
 
+pub struct CanvasMeta {
+    /// Entity the `Canvas` component is attached to.
+    canvas_entity: Entity,
+    /// Entity the `PrimitiveBatch` component is attached to (render phase item).
+    batch_entity: Entity,
+    primitive_bind_group: BindGroup,
+    index_buffer: Buffer,
+}
 pub struct PrimitiveMeta {
     view_bind_group: Option<BindGroup>,
-    primitive_bind_groups: HashMap<Entity, BindGroup>,
-    index_buffers: HashMap<Entity, Buffer>,
+    /// Map from canvas entity to per-canvas meta.
+    canvas_meta: HashMap<Entity, CanvasMeta>,
 }
 
 impl Default for PrimitiveMeta {
     fn default() -> Self {
         Self {
             view_bind_group: None,
-            primitive_bind_groups: HashMap::new(),
-            index_buffers: HashMap::new(),
+            canvas_meta: HashMap::new(),
         }
     }
 }
@@ -266,20 +290,20 @@ bitflags::bitflags! {
     #[repr(transparent)]
     // NOTE: Apparently quadro drivers support up to 64x MSAA.
     // MSAA uses the highest 6 bits for the MSAA sample count - 1 to support up to 64x MSAA.
-    pub struct QuadPipelineKey: u32 {
+    pub struct PrimitivePipelineKey: u32 {
         const NONE                        = 0;
         const TEXTURED                    = (1 << 0);
-        const MSAA_RESERVED_BITS          = QuadPipelineKey::MSAA_MASK_BITS << QuadPipelineKey::MSAA_SHIFT_BITS;
+        const MSAA_RESERVED_BITS          = PrimitivePipelineKey::MSAA_MASK_BITS << PrimitivePipelineKey::MSAA_SHIFT_BITS;
     }
 }
 
-impl QuadPipelineKey {
+impl PrimitivePipelineKey {
     const MSAA_MASK_BITS: u32 = 0b111111;
     const MSAA_SHIFT_BITS: u32 = 32 - 6;
 
     pub fn from_msaa_samples(msaa_samples: u32) -> Self {
         let msaa_bits = ((msaa_samples - 1) & Self::MSAA_MASK_BITS) << Self::MSAA_SHIFT_BITS;
-        QuadPipelineKey::from_bits(msaa_bits).unwrap()
+        PrimitivePipelineKey::from_bits(msaa_bits).unwrap()
     }
 
     pub fn msaa_samples(&self) -> u32 {
@@ -288,7 +312,7 @@ impl QuadPipelineKey {
 }
 
 impl SpecializedRenderPipeline for PrimitivePipeline {
-    type Key = QuadPipelineKey;
+    type Key = PrimitivePipelineKey;
 
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
         // let mut formats = vec![
@@ -300,7 +324,7 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
         let mut layouts = vec![self.view_layout.clone(), self.prim_layout.clone()];
         let mut shader_defs = Vec::new();
 
-        if key.contains(QuadPipelineKey::TEXTURED) {
+        if key.contains(PrimitivePipelineKey::TEXTURED) {
             shader_defs.push("TEXTURED".to_string());
             //formats.push(VertexFormat::Float32x2); // uv
             layouts.push(self.material_layout.clone());
@@ -581,54 +605,72 @@ pub fn queue_primitives(
 
     // TODO - per view culling?! (via VisibleEntities)
     let draw_primitives_function = draw_functions.read().get_id::<DrawPrimitive>().unwrap();
-    let key = QuadPipelineKey::from_msaa_samples(msaa.samples);
+    let key = PrimitivePipelineKey::from_msaa_samples(msaa.samples);
     let pipeline = pipelines.specialize(&mut pipeline_cache, &primitive_pipeline, key);
     // let textured_pipeline = pipelines.specialize(
     //     &mut pipeline_cache,
     //     &primitive_pipeline,
-    //     key | QuadPipelineKey::TEXTURED,
+    //     key | PrimitivePipelineKey::TEXTURED,
     // );
 
-    // FIXME - move to PREPARE phase?
-    for (entity, extracted_canvas) in extracted_canvases.canvases.iter_mut() {
+    for (canvas_entity, extracted_canvas) in extracted_canvases.canvases.iter_mut() {
+        // FIXME - move to PREPARE phase?
         extracted_canvas.write_buffer(&render_device, &render_queue);
 
-        primitive_meta
-            .primitive_bind_groups
-            .entry(*entity)
+        let canvas_meta = primitive_meta
+            .canvas_meta
+            .entry(*canvas_entity)
             .or_insert_with(|| {
-                render_device.create_bind_group(&BindGroupDescriptor {
+                let primitive_bind_group = render_device.create_bind_group(&BindGroupDescriptor {
                     entries: &[BindGroupEntry {
                         binding: 0,
                         resource: extracted_canvas.binding().unwrap(),
                     }],
                     label: Some("prim_bind_group"),
                     layout: &primitive_pipeline.prim_layout,
-                })
+                });
+
+                let index_buffer = extracted_canvas.index_buffer.as_ref().unwrap().clone();
+
+                trace!("Adding new CanvasMeta: canvas_entity={:?}", canvas_entity);
+
+                CanvasMeta {
+                    canvas_entity: *canvas_entity,
+                    batch_entity: Entity::from_raw(0), // fixed below
+                    primitive_bind_group,
+                    index_buffer,
+                }
             });
 
-        primitive_meta
-            .index_buffers
-            .entry(*entity)
-            .or_insert_with(|| extracted_canvas.index_buffer.as_ref().unwrap().clone());
-    }
+        // Render world entities are deleted each frame, re-add
+        let primitive_batch = PrimitiveBatch {
+            index_buffer: canvas_meta.index_buffer.clone(),
+            canvas_entity: *canvas_entity,
+        };
+        let batch_entity = commands.spawn_bundle((primitive_batch,)).id();
+        canvas_meta.batch_entity = batch_entity;
 
-    // FIXME: VisibleEntities is ignored
-    for extracted_canvas in extracted_canvases.canvases.values_mut() {
+        trace!(
+            "CanvasMeta: canvas_entity={:?} batch_entity={:?}",
+            canvas_entity,
+            batch_entity
+        );
+
         let sort_key = FloatOrd(extracted_canvas.transform.translation.z);
         let index_count = extracted_canvas.indices.len() as u32;
+
         if index_count > 0 {
             if let Some(index_buffer) = &extracted_canvas.index_buffer {
                 for mut transparent_phase in views.iter_mut() {
-                    trace!("Add Transparent2d item: 0..{} (sort={:?})", index_count, sort_key);
+                    trace!(
+                        "Add Transparent2d item: 0..{} (sort={:?})",
+                        index_count,
+                        sort_key
+                    );
                     transparent_phase.add(Transparent2d {
                         draw_function: draw_primitives_function,
                         pipeline,
-                        entity: commands
-                            .spawn_bundle((PrimitiveBatch {
-                                index_buffer: index_buffer.clone(),
-                            },))
-                            .id(),
+                        entity: canvas_meta.batch_entity,
                         sort_key,
                         batch_range: Some(0..index_count),
                     });
