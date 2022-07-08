@@ -72,37 +72,12 @@ fn vertex(
     var out: VertexOutput;
     var vertex_position: vec2<f32>;
     var vertex_color: vec4<f32>;
-    // //if (prim.kind == 0u) // RECT
-    // {
-    //     //let rect = load_rect(prim.offset);
-    //     var rect: Rect;
-    //     rect.pos = vec2<f32>(0., 0.);
-    //     rect.size = vec2<f32>(10., 20.);
-    //     rect.color = vec4<f32>(1., 1., 1., 1.);
-
-    //     // TEMP
-    //     prim.corner = vec2<f32>(f32(vertex_index & 1u), 1. - f32((vertex_index & 2u) >> 1u));
-
-    //     vertex_position = rect.pos + rect.size * prim.corner;
-    //     vertex_color = rect.color;
-    // }
-    if (vertex_index == 0u)
+    if (prim.kind == 0u) // RECT
     {
-        vertex_position = vec2<f32>(-100., -100.);
+        var rect = load_rect(prim.offset);
+        vertex_position = rect.pos + rect.size * prim.corner;
+        vertex_color = rect.color;
     }
-    else if (vertex_index == 1u)
-    {
-        vertex_position = vec2<f32>(100., -100.);
-    }
-    else if (vertex_index == 2u)
-    {
-        vertex_position = vec2<f32>(100., 100.);
-    }
-    else if (vertex_index == 3u)
-    {
-        vertex_position = vec2<f32>(-100., 100.);
-    }
-    vertex_color = vec4<f32>(1., 1., 1., 1.);
     out.position = view.view_proj * vec4<f32>(vertex_position, 0.0, 1.0);
     out.color = vertex_color;
 #ifdef TEXTURED

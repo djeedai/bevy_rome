@@ -38,9 +38,9 @@ impl Primitive for LinePrim {
         prim[5].write(self.thickness);
         assert_eq!(6, idx.len());
         let prim_id = 1; // LINE
-        for i in [0, 2, 3, 0, 1, 2] {
-            let id = offset | i << 24 | prim_id << 26;
-            idx[i as usize].write(id);
+        for (i, corner) in [0, 2, 3, 0, 1, 2].iter().enumerate() {
+            let index = offset | corner << 24 | prim_id << 26;
+            idx[i].write(index);
         }
     }
 }
@@ -74,9 +74,9 @@ impl Primitive for RectPrim {
         prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
         assert_eq!(6, idx.len());
         let prim_id = 0; // RECT
-        for (i, index) in [0, 2, 3, 0, 1, 2].iter().enumerate() {
-            let id = *index as u32;// offset | index << 24 | prim_id << 26;
-            idx[i].write(id);
+        for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
+            let index = offset | corner << 24 | prim_id << 26;
+            idx[i].write(index);
         }
     }
 }

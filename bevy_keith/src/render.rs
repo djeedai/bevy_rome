@@ -444,7 +444,7 @@ impl ExtractedCanvas {
             BindingResource::Buffer(BufferBinding {
                 buffer: &buffer,
                 offset: 0,
-                size: BufferSize::new(4),
+                size: None,
             })
         })
     }
