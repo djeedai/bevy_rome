@@ -31,7 +31,7 @@ impl Brush {
     }
 }
 
-// impl<'q> IntoBrush<RenderContext<'q>> for Brush {
+// impl<'c> IntoBrush<RenderContext<'c>> for Brush {
 //     fn make_brush<'b>(
 //         &'b self,
 //         _piet: &mut RenderContext,
@@ -164,27 +164,30 @@ pub struct BevyImage {
 // }
 
 #[derive(Debug)]
-pub struct RenderContext<'q> {
+pub struct RenderContext<'c> {
     text: Text,
-    buffer: Option<Buffer>,
     transform: Transform, // TODO -- 2D affine transform only...
-    canvas: &'q mut Canvas,
+    canvas: &'c mut Canvas,
 }
 
-impl<'q> RenderContext<'q> {
-    pub fn new(canvas: &'q mut Canvas) -> Self {
+impl<'c> RenderContext<'c> {
+    /// Create a new render context to draw on an existing canvas.
+    pub fn new(canvas: &'c mut Canvas) -> Self {
         Self {
             text: Text {},
-            buffer: None,
             transform: Transform::identity(),
             canvas,
         }
     }
 
+    /// Create a solid-color brush.
     pub fn solid_brush(&mut self, color: Color) -> Brush {
         Brush { color }
     }
 
+    /// Clear an area of the render context with a specific color.
+    /// 
+    /// To clear the entire underlying canvas, prefer using [`Canvas::clear()`].
     pub fn clear(&mut self, region: Option<Rect>, color: Color) {
         if let Some(rect) = region {
             // TODO - delete primitives covered by region
@@ -195,25 +198,24 @@ impl<'q> RenderContext<'q> {
         }
     }
 
+    /// Fill a shape with a given brush.
     pub fn fill(&mut self, shape: Rect, brush: &Brush) {
-        self.canvas.push(RectPrim {
+        self.canvas.draw(RectPrim {
             rect: shape,
             color: brush.color(),
             flip_x: false,
             flip_y: false,
         });
     }
-
-    pub fn render(ctx: &mut bevy::render::renderer::RenderContext) {}
 }
 
-impl<'q> Drop for RenderContext<'q> {
+impl<'c> Drop for RenderContext<'c> {
     fn drop(&mut self) {
         self.canvas.finish();
     }
 }
 
-// impl<'q> piet::RenderContext for RenderContext<'q> {
+// impl<'c> piet::RenderContext for RenderContext<'c> {
 //     type Brush = Brush;
 //     type Text = Text;
 //     type TextLayout = TextLayout;

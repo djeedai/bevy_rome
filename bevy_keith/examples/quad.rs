@@ -4,10 +4,9 @@ use bevy::{
     prelude::*,
     render::{
         camera::ScalingMode,
-        render_resource::WgpuFeatures,
         settings::{PowerPreference, WgpuSettings},
     },
-    sprite::{MaterialMesh2dBundle, Rect},
+    sprite::Rect,
 };
 use bevy_inspector_egui::WorldInspectorPlugin;
 
@@ -33,44 +32,24 @@ fn main() {
         .run();
 }
 
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    let mut camera = OrthographicCameraBundle::new_2d();
-    //let mut canvas = PietCanvas::from_projection(&camera.orthographic_projection);
-    // camera.orthographic_projection.scale = 1.0;
-    // camera.orthographic_projection.scaling_mode = ScalingMode::FixedVertical;
-    // camera.transform.translation.z = camera.orthographic_projection.far / 2.0;
-    commands.spawn_bundle(camera);
-
+fn setup(mut commands: Commands) {
     let mut canvas = Canvas::new(Rect {
         min: Vec2::splat(-400.),
         max: Vec2::splat(100.),
     });
-
-    // canvas.quads_vec().push(Quad {
-    //     rect: bevy::sprite::Rect {
-    //         min: Vec2::ZERO,
-    //         max: Vec2::new(100., 50.),
-    //     },
-    //     color: Color::RED,
-    //     flip_x: false,
-    //     flip_y: false,
-    // });
-
+    canvas.set_background_color(Some(Color::FUCHSIA));
     commands
-        .spawn_bundle((Transform::default(), GlobalTransform::default(), canvas))
-        .insert(Name::new("canvas"));
+        .spawn_bundle(OrthographicCameraBundle::new_2d())
+        .insert(canvas);
 }
 
 fn run(mut query: Query<&mut Canvas>) {
     let mut canvas = query.single_mut();
-    //canvas.clear();
+    canvas.clear();
+
     let mut ctx = canvas.render_context();
 
-    ctx.clear(None, Color::FUCHSIA);
+    //ctx.clear(None, Color::FUCHSIA);
 
     let brush = ctx.solid_brush(Color::AQUAMARINE);
     let rect = Rect {

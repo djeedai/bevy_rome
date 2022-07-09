@@ -20,7 +20,8 @@ pub use render_context::RenderContext;
 use bevy::app::prelude::*;
 use bevy::asset::{AddAsset, Assets, HandleUntyped};
 use bevy::core_pipeline::Transparent2d;
-use bevy::ecs::schedule::SystemLabel;
+use bevy::ecs::schedule::{StageLabel, SystemLabel};
+use bevy::prelude::ParallelSystemDescriptorCoercion;
 use bevy::reflect::TypeUuid;
 use bevy::render::{
     render_phase::AddRenderCommand,
@@ -45,7 +46,10 @@ impl Plugin for KeithPlugin {
         let primitives_shader = Shader::from_wgsl(include_str!("prim.wgsl"));
         shaders.set_untracked(PRIMITIVE_SHADER_HANDLE, primitives_shader);
 
-        //app.register_type::<Canvas>();
+        app.register_type::<Canvas>().add_system_to_stage(
+            CoreStage::PreUpdate,
+            canvas::update_canvas_from_ortho_camera,
+        );
 
         if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
@@ -58,7 +62,7 @@ impl Plugin for KeithPlugin {
                 .add_render_command::<Transparent2d, DrawPrimitive>()
                 .add_system_to_stage(
                     RenderStage::Extract,
-                    render::extract_primitives, //.label(KeithSystem::ExtractPrimitives),
+                    render::extract_primitives.label(KeithSystem::ExtractPrimitives),
                 )
                 .add_system_to_stage(RenderStage::Extract, render::extract_primitive_events)
                 .add_system_to_stage(RenderStage::Queue, render::queue_primitives);

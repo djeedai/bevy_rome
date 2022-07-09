@@ -1,8 +1,11 @@
 use std::mem::MaybeUninit;
 
 use bevy::{
-    ecs::component::Component,
+    ecs::{component::Component, reflect::ReflectComponent, system::Query},
+    log::trace,
     math::{Vec2, Vec3},
+    prelude::OrthographicProjection,
+    reflect::Reflect,
     render::{camera::CameraProjection, color::Color},
     sprite::Rect,
     utils::default,
@@ -81,50 +84,69 @@ impl Primitive for RectPrim {
     }
 }
 
-#[derive(Component, Debug, Default)]
+#[derive(Component, Debug, Default, Reflect)]
+#[reflect(Component)]
 pub struct Canvas {
+    /// The canvas dimensions relative to its origin.
     rect: Rect,
-    primitives: Vec<f32>,
-    indices: Vec<u32>,
+    /// Optional background color to clear the canvas with.
     background_color: Option<Color>,
+    /// Collection of primitives serialized as a float array, ready for shader consumption.
+    #[reflect(ignore)]
+    primitives: Vec<f32>,
+    /// Collection of primitive indices serialized as an index array, ready for shader consumption.
+    #[reflect(ignore)]
+    indices: Vec<u32>,
 }
 
 impl Canvas {
+    /// Create a new canvas with given dimensions.
     pub fn new(rect: Rect) -> Self {
         Self { rect, ..default() }
     }
 
-    // pub fn from_projection<P: CameraProjection>(projection: &P) -> Self {
-    //     let mat4 = projection.get_projection_matrix();
-    //     let x = mat4.transform_point3a(Vec3A::X);
-    //     let y = mat4.transform_point3a(Vec3A::Y);
-    //     Self {
-    //         rect: Rect {
-    //             min: Vec2::new(ortho.left, ortho.top),
-    //             max: Vec2::new(ortho.right, ortho.bottom),
-    //         },
-    //         ..Default::default()
-    //     }
-    // }
+    /// Create a new canvas with dimensions calculated to cover the area of an orthographic
+    /// projection.
+    pub fn from_ortho(ortho: &OrthographicProjection) -> Self {
+        Self::new(Rect {
+            min: Vec2::new(ortho.left, ortho.top),
+            max: Vec2::new(ortho.right, ortho.bottom),
+        })
+    }
 
+    /// Change the dimensions of the canvas.
     pub fn set_rect(&mut self, rect: Rect) {
-        if let Some(color) = self.background_color {
-            //if self.rect != rect {
-                // TODO - clear new area if any? or resize the clear() rect?!
-            //}
-        }
+        // if let Some(color) = self.background_color {
+        //     if self.rect != rect {
+        //         TODO - clear new area if any? or resize the clear() rect?!
+        //     }
+        // }
         self.rect = rect;
     }
 
+    /// Get the dimensions of the canvas relative to its origin.
     pub fn rect(&self) -> Rect {
         self.rect
     }
 
+    /// Change the background color of the canvas.
+    ///
+    /// This only has an effect starting from the next [`clear()`] call.
+    pub fn set_background_color(&mut self, background_color: Option<Color>) {
+        self.background_color = background_color;
+    }
+
+    /// Get the current background color of the canvas.
+    pub fn background_color(&self) -> Option<Color> {
+        self.background_color
+    }
+
+    /// Clear the canvas, discarding all primitives previously drawn on it.
     pub fn clear(&mut self) {
         self.primitives.clear();
         self.indices.clear();
         if let Some(color) = self.background_color {
-            self.push(RectPrim {
+            self.draw(RectPrim {
                 rect: self.rect,
                 color,
                 ..default()
@@ -132,7 +154,12 @@ impl Canvas {
         }
     }
 
-    pub fn push(&mut self, prim: impl Primitive) {
+    /// Draw a new primitive onto the canvas.
+    ///
+    /// This is a lower level entry point to canvas drawing; in general, you should
+    /// prefer acquiring a [`RenderContext`] via [`Canvas::render_context()`] and
+    /// using it to draw primitives.
+    pub fn draw(&mut self, prim: impl Primitive) {
         let offset = self.primitives.len() as u32;
 
         // Allocate storage for primitives and indices
@@ -143,7 +170,11 @@ impl Canvas {
         let idx_slice = self.indices.spare_capacity_mut();
 
         // Write primitives and indices
-        prim.write(&mut prim_slice[..prim_size], offset, &mut idx_slice[..idx_size]);
+        prim.write(
+            &mut prim_slice[..prim_size],
+            offset,
+            &mut idx_slice[..idx_size],
+        );
 
         // Apply new storage sizes
         let prim_size = self.primitives.len() + prim_size;
@@ -152,6 +183,7 @@ impl Canvas {
         unsafe { self.indices.set_len(idx_size) };
     }
 
+    /// Acquire a new render context to draw on this canvas.
     pub fn render_context(&mut self) -> RenderContext {
         RenderContext::new(self)
     }
@@ -166,5 +198,18 @@ impl Canvas {
 
     pub(crate) fn take_indices_buffer(&mut self) -> Vec<u32> {
         std::mem::take(&mut self.indices)
+    }
+}
+
+/// Update the dimensions of any [`Canvas`] component attached to the same entity as
+/// as an [`OrthographicProjection`] component.
+pub fn update_canvas_from_ortho_camera(mut query: Query<(&mut Canvas, &OrthographicProjection)>) {
+    for (mut canvas, projection) in query.iter_mut() {
+        let proj_rect = Rect {
+            min: Vec2::new(projection.left, projection.bottom),
+            max: Vec2::new(projection.right, projection.top),
+        };
+        trace!("ortho canvas rect = {:?}", proj_rect);
+        canvas.set_rect(proj_rect);
     }
 }

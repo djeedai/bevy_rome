@@ -406,6 +406,11 @@ impl ExtractedCanvas {
         let contents = bytemuck::cast_slice(&self.buffer[..]);
         if size > self.storage_capacity {
             // GPU buffer too small; reallocated...
+            trace!(
+                "Reallocate canvas_primitive_buffer: {} -> {}",
+                self.storage_capacity,
+                size
+            );
             self.storage = Some(
                 render_device.create_buffer_with_data(&BufferInitDescriptor {
                     label: Some("canvas_primitive_buffer"),
@@ -614,41 +619,51 @@ pub fn queue_primitives(
     // );
 
     for (canvas_entity, extracted_canvas) in extracted_canvases.canvases.iter_mut() {
+        let index_count = extracted_canvas.indices.len() as u32;
+        if index_count == 0 {
+            continue;
+        }
+
         // FIXME - move to PREPARE phase?
         extracted_canvas.write_buffer(&render_device, &render_queue);
 
+        // Re-create bind group each frame, as storage buffer may have been re-allocated
+        // above in the write_buffer() call.
+        let primitive_bind_group = render_device.create_bind_group(&BindGroupDescriptor {
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: extracted_canvas.binding().unwrap(),
+            }],
+            label: Some("prim_bind_group"),
+            layout: &primitive_pipeline.prim_layout,
+        });
+        let index_buffer = extracted_canvas.index_buffer.as_ref().unwrap().clone();
+
+        // Render world entities are deleted each frame, re-add
+        let primitive_batch = PrimitiveBatch {
+            index_buffer: index_buffer.clone(),
+            canvas_entity: *canvas_entity,
+        };
+        let batch_entity = commands.spawn_bundle((primitive_batch,)).id();
+
+        // Update meta map
         let canvas_meta = primitive_meta
             .canvas_meta
             .entry(*canvas_entity)
+            .and_modify(|canvas_meta| {
+                canvas_meta.batch_entity = batch_entity;
+                canvas_meta.primitive_bind_group = primitive_bind_group.clone();
+                canvas_meta.index_buffer = index_buffer.clone();
+            })
             .or_insert_with(|| {
-                let primitive_bind_group = render_device.create_bind_group(&BindGroupDescriptor {
-                    entries: &[BindGroupEntry {
-                        binding: 0,
-                        resource: extracted_canvas.binding().unwrap(),
-                    }],
-                    label: Some("prim_bind_group"),
-                    layout: &primitive_pipeline.prim_layout,
-                });
-
-                let index_buffer = extracted_canvas.index_buffer.as_ref().unwrap().clone();
-
                 trace!("Adding new CanvasMeta: canvas_entity={:?}", canvas_entity);
-
                 CanvasMeta {
                     canvas_entity: *canvas_entity,
-                    batch_entity: Entity::from_raw(0), // fixed below
+                    batch_entity,
                     primitive_bind_group,
                     index_buffer,
                 }
             });
-
-        // Render world entities are deleted each frame, re-add
-        let primitive_batch = PrimitiveBatch {
-            index_buffer: canvas_meta.index_buffer.clone(),
-            canvas_entity: *canvas_entity,
-        };
-        let batch_entity = commands.spawn_bundle((primitive_batch,)).id();
-        canvas_meta.batch_entity = batch_entity;
 
         trace!(
             "CanvasMeta: canvas_entity={:?} batch_entity={:?}",
@@ -657,24 +672,21 @@ pub fn queue_primitives(
         );
 
         let sort_key = FloatOrd(extracted_canvas.transform.translation.z);
-        let index_count = extracted_canvas.indices.len() as u32;
 
         if index_count > 0 {
-            if let Some(index_buffer) = &extracted_canvas.index_buffer {
-                for mut transparent_phase in views.iter_mut() {
-                    trace!(
-                        "Add Transparent2d item: 0..{} (sort={:?})",
-                        index_count,
-                        sort_key
-                    );
-                    transparent_phase.add(Transparent2d {
-                        draw_function: draw_primitives_function,
-                        pipeline,
-                        entity: canvas_meta.batch_entity,
-                        sort_key,
-                        batch_range: Some(0..index_count),
-                    });
-                }
+            for mut transparent_phase in views.iter_mut() {
+                trace!(
+                    "Add Transparent2d item: 0..{} (sort={:?})",
+                    index_count,
+                    sort_key
+                );
+                transparent_phase.add(Transparent2d {
+                    draw_function: draw_primitives_function,
+                    pipeline,
+                    entity: canvas_meta.batch_entity,
+                    sort_key,
+                    batch_range: Some(0..index_count),
+                });
             }
         }
     }
