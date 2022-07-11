@@ -3,6 +3,7 @@
 mod canvas;
 mod render;
 mod render_context;
+mod text;
 
 pub mod prelude {
     #[doc(hidden)]
@@ -16,6 +17,7 @@ use render::{
 
 pub use canvas::{Canvas, Primitive};
 pub use render_context::RenderContext;
+pub use text::{CanvasTextId, KeithTextPipeline};
 
 use bevy::app::prelude::*;
 use bevy::asset::{AddAsset, Assets, HandleUntyped};
@@ -28,6 +30,8 @@ use bevy::render::{
     render_resource::{Shader, SpecializedRenderPipelines},
     RenderApp, RenderStage,
 };
+use bevy::text::TextPipeline;
+//use bevy::window::ModifiesWindows;
 
 #[derive(Default)]
 pub struct KeithPlugin;
@@ -37,6 +41,9 @@ pub(crate) const PRIMITIVE_SHADER_HANDLE: HandleUntyped =
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemLabel)]
 pub enum KeithSystem {
+    /// Label for [`text::process_glyphs()`].
+    ProcessTextGlyphs,
+    /// Label for [`render::extract_primitives()`].
     ExtractPrimitives,
 }
 
@@ -46,10 +53,16 @@ impl Plugin for KeithPlugin {
         let primitives_shader = Shader::from_wgsl(include_str!("prim.wgsl"));
         shaders.set_untracked(PRIMITIVE_SHADER_HANDLE, primitives_shader);
 
-        app.register_type::<Canvas>().add_system_to_stage(
-            CoreStage::PreUpdate,
-            canvas::update_canvas_from_ortho_camera,
-        );
+        app.register_type::<Canvas>()
+            .init_resource::<KeithTextPipeline>()
+            .add_system_to_stage(
+                CoreStage::PreUpdate,
+                canvas::update_canvas_from_ortho_camera,
+            )
+            .add_system_to_stage(
+                CoreStage::PostUpdate,
+                text::process_glyphs.label(KeithSystem::ProcessTextGlyphs), //.after(ModifiesWindows),
+            );
 
         if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
@@ -65,6 +78,8 @@ impl Plugin for KeithPlugin {
                     render::extract_primitives.label(KeithSystem::ExtractPrimitives),
                 )
                 .add_system_to_stage(RenderStage::Extract, render::extract_primitive_events)
+                .add_system_to_stage(RenderStage::Prepare, render::prepare_primitives)
+                //.add_system_to_stage(RenderStage::Extract, text::extract_text_primitives)
                 .add_system_to_stage(RenderStage::Queue, render::queue_primitives);
         };
     }

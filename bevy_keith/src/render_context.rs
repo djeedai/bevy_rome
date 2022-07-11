@@ -10,7 +10,8 @@ use bevy::{
 };
 use std::{ops::RangeBounds, str, sync::Arc};
 
-use crate::canvas::{Canvas, LinePrim, Primitive, RectPrim};
+use crate::canvas::{Canvas, LinePrimitive, Primitive, RectPrimitive, TextPrimitive};
+use crate::CanvasTextId;
 
 #[derive(Debug, Clone)]
 pub struct Brush {
@@ -41,11 +42,32 @@ impl Brush {
 //     }
 // }
 
-#[derive(Debug, Default, Clone)]
-pub struct Text;
+pub trait TextStorage: 'static {
+    fn as_str(&self) -> &str;
+}
+
+impl TextStorage for String {
+    fn as_str(&self) -> &str {
+        &self[..]
+    }
+}
+
+impl TextStorage for &'static str {
+    fn as_str(&self) -> &str {
+        self
+    }
+}
+
+// #[derive(Debug)]
+// pub struct Text<'c> {
+//     layouts: &'c Vec<TextLayout>,
+// }
+
+// impl<'c> Text<'c> {
+// }
 
 // impl piet::Text for Text {
-//     type TextLayoutBuilder = BevyTextLayoutBuilder;
+//     type TextLayoutBuilder = TextLayoutBuilder;
 //     type TextLayout = TextLayout;
 //     fn font_family(&mut self, family_name: &str) -> Option<piet::FontFamily> {
 //         unimplemented!()
@@ -59,7 +81,12 @@ pub struct Text;
 // }
 
 #[derive(Debug, Default, Clone)]
-pub struct TextLayout;
+pub struct TextLayout {
+    pub(crate) id: u32,
+    pub(crate) sections: Vec<TextSection>,
+    pub(crate) alignment: TextAlignment,
+    pub(crate) bounds: Size<f32>,
+}
 
 // impl piet::TextLayout for TextLayout {
 //     fn size(&self) -> Size {
@@ -94,9 +121,54 @@ pub struct TextLayout;
 //     }
 // }
 
-pub struct BevyTextLayoutBuilder;
+pub struct TextLayoutBuilder<'c> {
+    canvas: &'c mut Canvas,
+    style: TextStyle,
+    value: String,
+}
 
-// impl piet::TextLayoutBuilder for BevyTextLayoutBuilder {
+impl<'c> TextLayoutBuilder<'c> {
+    fn new(canvas: &'c mut Canvas, storage: impl TextStorage) -> Self {
+        Self {
+            canvas,
+            style: TextStyle::default(),
+            value: storage.as_str().to_owned(),
+        }
+    }
+
+    pub fn font(mut self, font: Handle<Font>) -> Self {
+        self.style.font = font;
+        self
+    }
+
+    pub fn font_size(mut self, font_size: f32) -> Self {
+        self.style.font_size = font_size;
+        self
+    }
+
+    pub fn color(mut self, color: Color) -> Self {
+        self.style.color = color;
+        self
+    }
+
+    pub fn build(mut self) -> u32 {
+        let layout = TextLayout {
+            id: 0, // assigned in finish_layout()
+            sections: vec![TextSection {
+                style: self.style,
+                value: self.value,
+            }],
+            alignment: TextAlignment {
+                vertical: VerticalAlign::Center,
+                horizontal: HorizontalAlign::Center,
+            },
+            bounds: Size::new(100., 20.),
+        };
+        self.canvas.finish_layout(layout)
+    }
+}
+
+// impl piet::TextLayoutBuilder for TextLayoutBuilder {
 //     type Out = TextLayout;
 //     fn max_width(self, width: f64) -> Self {
 //         unimplemented!()
@@ -165,7 +237,6 @@ pub struct BevyImage {
 
 #[derive(Debug)]
 pub struct RenderContext<'c> {
-    text: Text,
     transform: Transform, // TODO -- 2D affine transform only...
     canvas: &'c mut Canvas,
 }
@@ -174,7 +245,6 @@ impl<'c> RenderContext<'c> {
     /// Create a new render context to draw on an existing canvas.
     pub fn new(canvas: &'c mut Canvas) -> Self {
         Self {
-            text: Text {},
             transform: Transform::identity(),
             canvas,
         }
@@ -186,7 +256,7 @@ impl<'c> RenderContext<'c> {
     }
 
     /// Clear an area of the render context with a specific color.
-    /// 
+    ///
     /// To clear the entire underlying canvas, prefer using [`Canvas::clear()`].
     pub fn clear(&mut self, region: Option<Rect>, color: Color) {
         if let Some(rect) = region {
@@ -200,11 +270,23 @@ impl<'c> RenderContext<'c> {
 
     /// Fill a shape with a given brush.
     pub fn fill(&mut self, shape: Rect, brush: &Brush) {
-        self.canvas.draw(RectPrim {
+        self.canvas.draw(RectPrimitive {
             rect: shape,
             color: brush.color(),
             flip_x: false,
             flip_y: false,
+        });
+    }
+
+    pub fn new_layout(&mut self, text: impl TextStorage) -> TextLayoutBuilder {
+        TextLayoutBuilder::new(self.canvas, text)
+    }
+
+    pub fn draw_text(&mut self, text_id: u32, pos: Vec2) {
+        self.canvas.draw(TextPrimitive {
+            id: text_id,
+            rect: Rect { min: pos, max: pos },
+            color: Color::RED, // FIXME - text.sections[0].style.color, // TODO - multi-section?
         });
     }
 }

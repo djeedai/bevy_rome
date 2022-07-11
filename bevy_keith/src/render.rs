@@ -1,5 +1,7 @@
+use std::primitive;
+
 use bevy::{
-    asset::{AssetEvent, Handle, HandleId},
+    asset::{Asset, AssetEvent, Handle, HandleId},
     core::{FloatOrd, Pod, Zeroable},
     core_pipeline::Transparent2d,
     ecs::{
@@ -38,10 +40,15 @@ use bevy::{
     },
     sprite::Rect as SRect,
     utils::HashMap,
+    window::WindowId,
 };
 use copyless::VecHelper;
 
-use crate::{Canvas, PRIMITIVE_SHADER_HANDLE};
+use crate::{
+    canvas::{Canvas, PrimImpl, Primitive},
+    text::{CanvasTextId, KeithTextPipeline},
+    PRIMITIVE_SHADER_HANDLE,
+};
 
 pub type DrawPrimitive = (
     SetItemPipeline,
@@ -390,20 +397,36 @@ const QUAD_UVS: [Vec2; 4] = [
 #[derive(Default)]
 pub struct ExtractedCanvas {
     pub transform: GlobalTransform,
-    pub buffer: Vec<f32>,
-    pub indices: Vec<u32>,
+    pub primitives: Vec<Primitive>,
     storage: Option<Buffer>,
     storage_capacity: usize,
     index_buffer: Option<Buffer>,
     index_buffer_capacity: usize,
+    pub index_count: u32,
+    /// Scale factor of the window where this canvas is rendered.
+    pub scale_factor: f32,
+    /// Extracted data for all texts in use, in local text ID order.
+    pub(crate) texts: Vec<ExtractedText>,
 }
 
 impl ExtractedCanvas {
     /// Write the CPU scratch buffer into the associated GPU storage buffer.
-    pub fn write_buffer(&mut self, render_device: &RenderDevice, render_queue: &RenderQueue) {
+    pub fn write_buffers(
+        &mut self,
+        primitives: &[f32],
+        indices: &[u32],
+        render_device: &RenderDevice,
+        render_queue: &RenderQueue,
+    ) {
+        trace!(
+            "Writing {} primitive elements and {} indices to GPU buffers",
+            primitives.len(),
+            indices.len()
+        );
+
         // Primitive buffer
-        let size = self.buffer.len();
-        let contents = bytemuck::cast_slice(&self.buffer[..]);
+        let size = primitives.len(); // FIXME - cap size to reasonable value
+        let contents = bytemuck::cast_slice(&primitives[..]);
         if size > self.storage_capacity {
             // GPU buffer too small; reallocated...
             trace!(
@@ -425,8 +448,9 @@ impl ExtractedCanvas {
         }
 
         // Index buffer
-        let size = self.indices.len();
-        let contents = bytemuck::cast_slice(&self.indices[..]);
+        let size = indices.len(); // FIXME - cap size to reasonable value
+        self.index_count += size as u32;
+        let contents = bytemuck::cast_slice(&indices[..]);
         if size > self.index_buffer_capacity {
             // GPU buffer too small; reallocated...
             self.index_buffer = Some(render_device.create_buffer_with_data(
@@ -466,98 +490,282 @@ pub struct PrimitiveAssetEvents {
     pub images: Vec<AssetEvent<Image>>,
 }
 
+/// Clone an [`AssetEvent`] manually by unwrapping and re-wrapping it, returning an event
+/// with a weak handle.
+///
+/// This is necessary because [`AssetEvent`] is `!Clone`.
+#[inline]
+fn clone_asset_event_weak<T: Asset>(event: &AssetEvent<T>) -> AssetEvent<T> {
+    match event {
+        AssetEvent::Created { handle } => AssetEvent::Created {
+            handle: handle.clone_weak(),
+        },
+        AssetEvent::Modified { handle } => AssetEvent::Modified {
+            handle: handle.clone_weak(),
+        },
+        AssetEvent::Removed { handle } => AssetEvent::Removed {
+            handle: handle.clone_weak(),
+        },
+    }
+}
+
+/// Render app system consuming asset events for [`Image`] components to react
+/// to changes to the content of primitive textures.
 pub(crate) fn extract_primitive_events(
     mut render_world: ResMut<RenderWorld>,
     mut image_events: EventReader<AssetEvent<Image>>,
 ) {
     //trace!("extract_primitive_events");
+
     let mut events = render_world.resource_mut::<PrimitiveAssetEvents>();
     let PrimitiveAssetEvents { ref mut images } = *events;
+
     images.clear();
 
     for image in image_events.iter() {
-        // AssetEvent: !Clone
-        images.push(match image {
-            AssetEvent::Created { handle } => AssetEvent::Created {
-                handle: handle.clone_weak(),
-            },
-            AssetEvent::Modified { handle } => AssetEvent::Modified {
-                handle: handle.clone_weak(),
-            },
-            AssetEvent::Removed { handle } => AssetEvent::Removed {
-                handle: handle.clone_weak(),
-            },
-        });
+        images.push(clone_asset_event_weak(image));
     }
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct ExtractedText {
+    pub glyphs: Vec<ExtractedGlyph>,
+}
+
+#[derive(Debug)]
+pub(crate) struct ExtractedGlyph {
+    /// Offset of the glyph from the text origin.
+    pub offset: Vec2,
+    pub size: Vec2,
+    /// Glyph color, as RGBA linear (0xAABBGGRR in little endian).
+    pub color: u32,
+    /// Handle of the atlas texture where the glyph is stored.
+    pub handle_id: HandleId,
+    /// Rectangle in UV coordinates delimiting the glyph area in the atlas texture.
+    pub uv_rect: bevy::sprite::Rect,
+}
+
+/// Render app system extracting all primitives from all [`Canvas`] components, for later
+/// rendering.
+///
+/// # Dependent components
+///
+/// [`Canvas`] components require at least a [`GlobalTransform`] component attached to the
+/// same entity and describing the canvas 3D transform.
+///
+/// An optional [`Visibility`] component can be added to that same entity to dynamically
+/// control the canvas visibility. By default if absent the canvas is assumed visible.
 pub(crate) fn extract_primitives(
     mut render_world: ResMut<RenderWorld>,
-    _texture_atlases: Res<Assets<TextureAtlas>>,
+    texture_atlases: Res<Assets<TextureAtlas>>,
+    windows: Res<Windows>,
+    text_pipeline: Res<KeithTextPipeline>,
     mut canvas_query: Query<(Entity, Option<&Visibility>, &mut Canvas, &GlobalTransform)>,
-    _atlas_query: Query<(
-        &Visibility,
-        &TextureAtlasSprite,
-        &GlobalTransform,
-        &Handle<TextureAtlas>,
-    )>,
 ) {
     trace!("extract_primitives");
+
+    // TODO - handle multi-window
+    let scale_factor = windows.scale_factor(WindowId::primary()) as f32;
+    let inv_scale_factor = 1. / scale_factor;
+
     let mut extracted_canvases = render_world.resource_mut::<ExtractedCanvases>();
-    extracted_canvases.canvases.clear();
-    for (entity, opt_visibility, mut canvas, transform) in canvas_query.iter_mut() {
-        if let Some(visibility) = opt_visibility {
-            if !visibility.is_visible {
-                continue;
+    let mut extracted_canvases = &mut extracted_canvases.canvases;
+
+    extracted_canvases.clear();
+
+    for (entity, maybe_visibility, mut canvas, transform) in canvas_query.iter_mut() {
+        // Skip hidden canvases
+        if !maybe_visibility.map_or(true, |vis| vis.is_visible) {
+            continue;
+        }
+
+        // Swap render and main app primitive buffer
+        let primitives = canvas.take_buffer();
+        trace!(
+            "Canvas on Entity {:?} has {} primitives and {} text layouts",
+            entity,
+            primitives.len(),
+            canvas.text_layouts().len(),
+        );
+        if primitives.is_empty() {
+            continue;
+        }
+
+        // Process text glyphs. This requires access to various assets on the main app,
+        // so needs to be done during the extract phase.
+        let mut extracted_texts: Vec<ExtractedText> = vec![];
+        for text in canvas.text_layouts() {
+            let text_id = CanvasTextId::from_raw(entity, text.id);
+            trace!("Extracting text {:?}...", text_id);
+
+            if let Some(text_layout) = text_pipeline.get_glyphs(&text_id) {
+                let width = text_layout.size.width * inv_scale_factor;
+                let height = text_layout.size.height * inv_scale_factor;
+
+                trace!(
+                    "-> {} glyphs, w={} h={} scale={}",
+                    text_layout.glyphs.len(),
+                    width,
+                    height,
+                    scale_factor
+                );
+
+                let alignment_offset = match text.alignment.vertical {
+                    VerticalAlign::Top => Vec2::new(0.0, -height),
+                    VerticalAlign::Center => Vec2::new(0.0, -height * 0.5),
+                    VerticalAlign::Bottom => Vec2::ZERO,
+                } + match text.alignment.horizontal {
+                    HorizontalAlign::Left => Vec2::ZERO,
+                    HorizontalAlign::Center => Vec2::new(-width * 0.5, 0.0),
+                    HorizontalAlign::Right => Vec2::new(-width, 0.0),
+                };
+
+                // let mut text_transform = extracted_canvas.transform;
+                // text_transform.scale *= inv_scale_factor;
+
+                let mut extracted_glyphs = vec![];
+                for text_glyph in &text_layout.glyphs {
+                    let color = text.sections[text_glyph.section_index]
+                        .style
+                        .color
+                        .as_linear_rgba_u32();
+                    let atlas = texture_atlases
+                        .get(&text_glyph.atlas_info.texture_atlas)
+                        .unwrap();
+                    let handle = atlas.texture.clone_weak();
+                    let index = text_glyph.atlas_info.glyph_index as usize;
+                    let uv_rect = atlas.textures[index];
+
+                    let glyph_offset = alignment_offset * scale_factor + text_glyph.position;
+                    let glyph_size = text_glyph.size;
+
+                    extracted_glyphs.push(ExtractedGlyph {
+                        offset: glyph_offset,
+                        size: glyph_size,
+                        color,
+                        handle_id: handle.id,
+                        uv_rect,
+                    });
+
+                    // let glyph_transform = Transform::from_translation(
+                    //     alignment_offset * scale_factor + text_glyph.position.extend(0.),
+                    // );
+
+                    // let transform = text_transform.mul_transform(glyph_transform);
+
+                    // extracted_sprites.sprites.push(ExtractedSprite {
+                    //     transform,
+                    //     color,
+                    //     rect,
+                    //     custom_size: None,
+                    //     image_handle_id: handle.id,
+                    //     flip_x: false,
+                    //     flip_y: false,
+                    //     anchor: Anchor::Center.as_vec(),
+                    // });
+                }
+
+                let index = text.id as usize;
+                trace!(
+                    "Inserting index={} with {} glyphs into extracted texts of len={}...",
+                    index,
+                    extracted_glyphs.len(),
+                    extracted_texts.len(),
+                );
+                if index >= extracted_texts.len() {
+                    extracted_texts.resize_with(index + 1, Default::default);
+                }
+                extracted_texts[index].glyphs = extracted_glyphs;
+            } else {
+                trace!("Glyphs not ready yet...");
             }
         }
-        let prim_buffer = canvas.take_primitives_buffer();
-        let idx_buffer = canvas.take_indices_buffer();
-        if !prim_buffer.is_empty() && !idx_buffer.is_empty() {
+
+        // Save extracted canvas
+        let extracted_canvas = extracted_canvases.entry(entity).or_insert(ExtractedCanvas {
+            transform: *transform,
+            ..Default::default()
+        });
+        extracted_canvas.primitives = primitives;
+        extracted_canvas.scale_factor = scale_factor;
+        extracted_canvas.texts = extracted_texts;
+    }
+}
+
+pub(crate) fn prepare_primitives(
+    mut extracted_canvases: ResMut<ExtractedCanvases>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
+    trace!("prepare_primitives");
+
+    let mut extracted_canvases = &mut extracted_canvases.canvases;
+
+    for (entity, extracted_canvas) in extracted_canvases {
+        extracted_canvas.index_count = 0;
+        let mut primitives = vec![];
+        let mut indices = vec![];
+
+        // Serialize primitives
+        trace!(
+            "Canvas of entity {:?} has {} primitives and {} texts",
+            entity,
+            extracted_canvas.primitives.len(),
+            extracted_canvas.texts.len(),
+        );
+        for prim in &extracted_canvas.primitives {
+            let offset = primitives.len() as u32;
+
+            // Allocate storage for primitives and indices
+            let (prim_size, idx_size) = prim.sizes(&extracted_canvas.texts[..]);
+            trace!("=> ps={} is={}", prim_size, idx_size);
+            if prim_size > 0 && idx_size > 0 {
+                primitives.reserve(prim_size);
+                indices.reserve(idx_size);
+                let prim_slice = primitives.spare_capacity_mut();
+                let idx_slice = indices.spare_capacity_mut();
+
+                // Write primitives and indices
+                prim.write(
+                    &extracted_canvas.texts[..],
+                    &mut prim_slice[..prim_size],
+                    offset,
+                    &mut idx_slice[..idx_size],
+                );
+
+                // Apply new storage sizes
+                let new_prim_size = primitives.len() + prim_size;
+                unsafe { primitives.set_len(new_prim_size) };
+                let new_idx_size = indices.len() + idx_size;
+                unsafe { indices.set_len(new_idx_size) };
+
+                trace!("New primitive elements:");
+                for f in &primitives[new_prim_size - prim_size..new_prim_size] {
+                    trace!("+ f32[] = {}", f);
+                }
+                trace!("New indices:");
+                for u in &indices[new_idx_size - idx_size..new_idx_size] {
+                    trace!("+ u32[] = {:x}", u);
+                }
+            }
+        }
+
+        // Upload to GPU buffers
+        if primitives.len() > 0 && indices.len() > 0 {
             trace!(
-                "canvas: primitives = {} f32, indices = {} u32",
-                prim_buffer.len(),
-                idx_buffer.len()
+                "Writing {} elems and {} indices for Canvas of entity {:?}",
+                primitives.len(),
+                indices.len(),
+                entity
             );
-            for f in &prim_buffer {
-                trace!("f32: {}", f);
-            }
-            for u in &idx_buffer {
-                trace!("u32: {:x}", u);
-            }
-            let extracted_canvas =
-                extracted_canvases
-                    .canvases
-                    .entry(entity)
-                    .or_insert(ExtractedCanvas {
-                        transform: *transform,
-                        ..Default::default()
-                    });
-            extracted_canvas.buffer = prim_buffer;
-            extracted_canvas.indices = idx_buffer;
+            extracted_canvas.write_buffers(
+                &primitives[..],
+                &indices[..],
+                &render_device,
+                &render_queue,
+            );
         }
     }
-
-    // for (visibility, atlas_quad, transform, texture_atlas_handle) in atlas_query.iter() {
-    //     if !visibility.is_visible {
-    //         continue;
-    //     }
-    //     if let Some(texture_atlas) = texture_atlases.get(texture_atlas_handle) {
-    //         let rect = Some(texture_atlas.textures[atlas_quad.index as usize]);
-    //         extracted_canvases.quads.alloc().init(ExtractedQuad {
-    //             color: atlas_quad.color,
-    //             transform: *transform,
-    //             // Select the area in the texture atlas
-    //             rect,
-    //             // Pass the custom size
-    //             size: atlas_quad.custom_size.unwrap_or(Vec2::ONE),
-    //             flip_x: atlas_quad.flip_x,
-    //             flip_y: atlas_quad.flip_y,
-    //             image_handle_id: texture_atlas.texture.id,
-    //             anchor: atlas_quad.anchor.as_vec(),
-    //         });
-    //     }
-    // }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -565,7 +773,7 @@ pub fn queue_primitives(
     mut commands: Commands,
     draw_functions: Res<DrawFunctions<Transparent2d>>,
     render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
+    _render_queue: Res<RenderQueue>,
     mut primitive_meta: ResMut<PrimitiveMeta>,
     view_uniforms: Res<ViewUniforms>,
     primitive_pipeline: Res<PrimitivePipeline>,
@@ -619,13 +827,10 @@ pub fn queue_primitives(
     // );
 
     for (canvas_entity, extracted_canvas) in extracted_canvases.canvases.iter_mut() {
-        let index_count = extracted_canvas.indices.len() as u32;
+        let index_count = extracted_canvas.index_count;
         if index_count == 0 {
             continue;
         }
-
-        // FIXME - move to PREPARE phase?
-        extracted_canvas.write_buffer(&render_device, &render_queue);
 
         // Re-create bind group each frame, as storage buffer may have been re-allocated
         // above in the write_buffer() call.
