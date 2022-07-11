@@ -50,11 +50,23 @@ use crate::{
     PRIMITIVE_SHADER_HANDLE,
 };
 
+const NIL_HANDLE_ID: HandleId = HandleId::new(Uuid::nil(), 0);
+
+trait HandleIdExt {
+    fn is_valid(&self) -> bool;
+}
+
+impl HandleIdExt for HandleId {
+    fn is_valid(&self) -> bool {
+        *self != NIL_HANDLE_ID
+    }
+}
+
 pub type DrawPrimitive = (
     SetItemPipeline,
     SetPrimitiveViewBindGroup<0>,
     SetPrimitiveBufferBindGroup<1>,
-    //SetQuadTextureBindGroup<2>,
+    SetPrimitiveTextureBindGroup<2>,
     DrawPrimitiveBatch,
 );
 
@@ -117,32 +129,37 @@ impl<const I: usize> EntityRenderCommand for SetPrimitiveBufferBindGroup<I> {
     }
 }
 
-// pub struct SetQuadTextureBindGroup<const I: usize>;
+pub struct SetPrimitiveTextureBindGroup<const I: usize>;
 
-// impl<const I: usize> EntityRenderCommand for SetQuadTextureBindGroup<I> {
-//     type Param = (SRes<ImageBindGroups>, SQuery<Read<PrimitiveBatch>>);
+impl<const I: usize> EntityRenderCommand for SetPrimitiveTextureBindGroup<I> {
+    type Param = (SRes<ImageBindGroups>, SQuery<Read<PrimitiveBatch>>);
 
-//     fn render<'w>(
-//         _view: Entity,
-//         item: Entity,
-//         (image_bind_groups, query_batch): SystemParamItem<'w, '_, Self::Param>,
-//         pass: &mut TrackedRenderPass<'w>,
-//     ) -> RenderCommandResult {
-//         let primitive_batch = query_batch.get(item).unwrap();
-//         if primitive_batch.textured {
-//             let image_bind_groups = image_bind_groups.into_inner();
-//             pass.set_bind_group(
-//                 I,
-//                 image_bind_groups
-//                     .values
-//                     .get(&Handle::weak(primitive_batch.image_handle_id))
-//                     .unwrap(),
-//                 &[],
-//             );
-//         }
-//         RenderCommandResult::Success
-//     }
-// }
+    fn render<'w>(
+        _view: Entity,
+        item: Entity,
+        (image_bind_groups, query_batch): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let primitive_batch = query_batch.get(item).unwrap();
+        trace!(
+            "SetPrimitiveTextureBindGroup: I={} image={:?}",
+            I,
+            primitive_batch.image_handle_id
+        );
+        if primitive_batch.image_handle_id.is_valid() {
+            let image_bind_groups = image_bind_groups.into_inner();
+            pass.set_bind_group(
+                I,
+                image_bind_groups
+                    .values
+                    .get(&Handle::weak(primitive_batch.image_handle_id))
+                    .unwrap(),
+                &[],
+            );
+        }
+        RenderCommandResult::Success
+    }
+}
 
 pub struct DrawPrimitiveBatch;
 
@@ -157,14 +174,6 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
     ) -> RenderCommandResult {
         let primitive_batch = query_batch.get(item.entity()).unwrap();
         let primitive_meta = primitive_meta.into_inner();
-        // if primitive_batch.textured {
-        //     pass.set_vertex_buffer(
-        //         0,
-        //         primitive_meta.textured_vertices.buffer().unwrap().slice(..),
-        //     );
-        // } else {
-        //     pass.set_vertex_buffer(0, primitive_meta.vertices.buffer().unwrap().slice(..));
-        // }
         if let Some(canvas_meta) = primitive_meta
             .canvas_meta
             .get(&primitive_batch.canvas_entity)
@@ -190,9 +199,9 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
 
 #[derive(Component, Clone)]
 pub struct PrimitiveBatch {
-    //image_handle_id: HandleId,
-    //textured: bool,
-    index_buffer: Buffer,
+    /// Handle of the texture for the batch, or [`NIL_HANDLE_ID`] if not textured.
+    image_handle_id: HandleId,
+    /// Entity holding the [`Canvas`] component this batch is built from.
     canvas_entity: Entity,
 }
 
@@ -201,7 +210,9 @@ pub struct CanvasMeta {
     canvas_entity: Entity,
     /// Entity the `PrimitiveBatch` component is attached to (render phase item).
     batch_entity: Entity,
+    /// Bind group for the primitive buffer used by the canvas.
     primitive_bind_group: BindGroup,
+    /// Index buffer for drawing all the primitives of the entire canvas.
     index_buffer: Buffer,
 }
 pub struct PrimitiveMeta {
@@ -846,7 +857,7 @@ pub fn queue_primitives(
 
         // Render world entities are deleted each frame, re-add
         let primitive_batch = PrimitiveBatch {
-            index_buffer: index_buffer.clone(),
+            image_handle_id: NIL_HANDLE_ID,
             canvas_entity: *canvas_entity,
         };
         let batch_entity = commands.spawn_bundle((primitive_batch,)).id();
@@ -878,21 +889,19 @@ pub fn queue_primitives(
 
         let sort_key = FloatOrd(extracted_canvas.transform.translation.z);
 
-        if index_count > 0 {
-            for mut transparent_phase in views.iter_mut() {
-                trace!(
-                    "Add Transparent2d item: 0..{} (sort={:?})",
-                    index_count,
-                    sort_key
-                );
-                transparent_phase.add(Transparent2d {
-                    draw_function: draw_primitives_function,
-                    pipeline,
-                    entity: canvas_meta.batch_entity,
-                    sort_key,
-                    batch_range: Some(0..index_count),
-                });
-            }
+        for mut transparent_phase in views.iter_mut() {
+            trace!(
+                "Add Transparent2d item: 0..{} (sort={:?})",
+                index_count,
+                sort_key
+            );
+            transparent_phase.add(Transparent2d {
+                draw_function: draw_primitives_function,
+                pipeline,
+                entity: canvas_meta.batch_entity,
+                sort_key,
+                batch_range: Some(0..index_count),
+            });
         }
     }
 }
