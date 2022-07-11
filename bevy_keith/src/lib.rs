@@ -50,7 +50,7 @@ pub enum KeithSystem {
 impl Plugin for KeithPlugin {
     fn build(&self, app: &mut App) {
         let mut shaders = app.world.resource_mut::<Assets<Shader>>();
-        let primitives_shader = Shader::from_wgsl(include_str!("prim.wgsl"));
+        let primitives_shader = Shader::from_wgsl(include_str!("render/prim.wgsl"));
         shaders.set_untracked(PRIMITIVE_SHADER_HANDLE, primitives_shader);
 
         app.register_type::<Canvas>()
