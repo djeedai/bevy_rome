@@ -169,12 +169,17 @@ pub struct TextPrimitive {
     pub color: Color,
 }
 
+impl TextPrimitive {
+    const ITEM_PER_GLYPH: usize = 9;
+    const INDEX_PER_GLYPH: usize = 6;
+}
+
 impl PrimImpl for TextPrimitive {
     fn sizes(&self, texts: &[ExtractedText]) -> (usize, usize) {
         let index = self.id as usize;
         if index < texts.len() {
             let glyph_count = texts[index].glyphs.len();
-            (glyph_count * 5, glyph_count * 6)
+            (glyph_count * Self::ITEM_PER_GLYPH, glyph_count * Self::INDEX_PER_GLYPH)
         } else {
             (0, 0)
         }
@@ -190,8 +195,8 @@ impl PrimImpl for TextPrimitive {
         let index = self.id as usize;
         let glyphs = &texts[index].glyphs;
         let glyph_count = glyphs.len();
-        assert_eq!(glyph_count * 5, prim.len());
-        assert_eq!(glyph_count * 6, idx.len());
+        assert_eq!(glyph_count * Self::ITEM_PER_GLYPH, prim.len());
+        assert_eq!(glyph_count * Self::INDEX_PER_GLYPH, idx.len());
         let mut ip = 0;
         let mut ii = 0;
         for i in 0..glyph_count {
@@ -199,6 +204,10 @@ impl PrimImpl for TextPrimitive {
             let y = self.rect.min.y + glyphs[i].offset.y;
             let w = glyphs[i].size.x;
             let h = glyphs[i].size.y;
+            let uv_x = glyphs[i].uv_rect.min.x / 512.0;
+            let uv_y = glyphs[i].uv_rect.min.y / 512.0;
+            let uv_w = glyphs[i].uv_rect.max.x / 512.0 - uv_x;
+            let uv_h = glyphs[i].uv_rect.max.y / 512.0 - uv_y;
             prim[ip + 0].write(x);
             prim[ip + 1].write(y);
             prim[ip + 2].write(w);
@@ -206,13 +215,17 @@ impl PrimImpl for TextPrimitive {
             // FIXME - self.color vs. glyph.color ?!!!
             //prim[ip + 4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
             prim[ip + 4].write(bytemuck::cast(glyphs[i].color));
-            ip += 5;
+            prim[ip + 5].write(uv_x);
+            prim[ip + 6].write(uv_y);
+            prim[ip + 7].write(uv_w);
+            prim[ip + 8].write(uv_h);
+            ip += Self::ITEM_PER_GLYPH;
             for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
                 let index = offset | corner << 24 | PRIM_TEXT << 26;
                 idx[ii + i].write(index);
             }
-            ii += 6;
-            offset += 5;
+            ii += Self::INDEX_PER_GLYPH;
+            offset += Self::ITEM_PER_GLYPH as u32;
         }
     }
 }

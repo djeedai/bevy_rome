@@ -38,6 +38,10 @@ struct Rect {
     pos: vec2<f32>;
     size: vec2<f32>;
     color: vec4<f32>;
+#ifdef TEXTURED
+    uv_pos: vec2<f32>;
+    uv_size: vec2<f32>;
+#endif
 };
 
 fn unpack_index(vertex_index: u32) -> Primitive {
@@ -56,11 +60,21 @@ fn load_rect(offset: u32) -> Rect {
     let w = primitives.elems[offset + 2u];
     let h = primitives.elems[offset + 3u];
     let c = primitives.elems[offset + 4u];
+#ifdef TEXTURED
+    let uv_x = primitives.elems[offset + 5u];
+    let uv_y = primitives.elems[offset + 6u];
+    let uv_w = primitives.elems[offset + 7u];
+    let uv_h = primitives.elems[offset + 8u];
+#endif
     var rect: Rect;
     rect.pos = vec2<f32>(x, y);
     rect.size = vec2<f32>(w, h);
     let uc: u32 = bitcast<u32>(c);
     rect.color = unpack4x8unorm(uc);
+#ifdef TEXTURED
+    rect.uv_pos = vec2<f32>(uv_x, uv_y);
+    rect.uv_size = vec2<f32>(uv_w, uv_h);
+#endif
     return rect;
 }
 
@@ -71,18 +85,16 @@ fn vertex(
     var prim = unpack_index(vertex_index);
     var out: VertexOutput;
     var vertex_position: vec2<f32>;
-    var vertex_color: vec4<f32>;
     if (prim.kind == 0u) // RECT
     {
         var rect = load_rect(prim.offset);
         vertex_position = rect.pos + rect.size * prim.corner;
-        vertex_color = rect.color;
+        out.color = rect.color;
+#ifdef TEXTURED
+        out.uv = rect.uv_pos + rect.uv_size * prim.corner;
+#endif
     }
     out.position = view.view_proj * vec4<f32>(vertex_position, 0.0, 1.0);
-    out.color = vertex_color;
-#ifdef TEXTURED
-    //out.uv = vertex_uv;
-#endif
     return out;
 }
 
@@ -90,7 +102,7 @@ fn vertex(
 fn fragment(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     var color = in.color;
 #ifdef TEXTURED
-    color *= textureSample(quad_texture, quad_sampler, in.uv);
+    color = vec4<f32>(color.xyz, color.a * textureSample(quad_texture, quad_sampler, in.uv).a);
 #endif
     return color;
 }
