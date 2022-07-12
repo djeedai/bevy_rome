@@ -50,7 +50,7 @@ fn unpack_index(vertex_index: u32) -> Primitive {
     let cx = (vertex_index & 0x01000000u) >> 24u;
     let cy = (vertex_index & 0x02000000u) >> 25u;
     p.corner = vec2<f32>(f32(cx), f32(cy));
-    p.kind = (vertex_index & 0xF6000000u) >> 26u;
+    p.kind = (vertex_index & 0xFC000000u) >> 26u;
     return p;
 }
 

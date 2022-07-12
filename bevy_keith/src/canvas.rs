@@ -27,14 +27,13 @@ pub(crate) trait PrimImpl {
         &self,
         texts: &[ExtractedText],
         prim: &mut [MaybeUninit<f32>],
-        offset: u32,
+        base_index: u32,
         idx: &mut [MaybeUninit<u32>],
     );
 }
 
 const PRIM_RECT: u32 = 0;
 const PRIM_LINE: u32 = 1;
-const PRIM_TEXT: u32 = 2;
 
 /// Drawing primitives.
 #[derive(Debug, Clone, Copy)]
@@ -103,7 +102,7 @@ impl PrimImpl for LinePrimitive {
         &self,
         _texts: &[ExtractedText],
         prim: &mut [MaybeUninit<f32>],
-        offset: u32,
+        base_index: u32,
         idx: &mut [MaybeUninit<u32>],
     ) {
         assert_eq!(6, prim.len());
@@ -115,7 +114,7 @@ impl PrimImpl for LinePrimitive {
         prim[5].write(self.thickness);
         assert_eq!(6, idx.len());
         for (i, corner) in [0, 2, 3, 0, 1, 2].iter().enumerate() {
-            let index = offset | corner << 24 | PRIM_LINE << 26;
+            let index = base_index | corner << 24 | PRIM_LINE << 26;
             idx[i].write(index);
         }
     }
@@ -145,7 +144,7 @@ impl PrimImpl for RectPrimitive {
         &self,
         _texts: &[ExtractedText],
         prim: &mut [MaybeUninit<f32>],
-        offset: u32,
+        base_index: u32,
         idx: &mut [MaybeUninit<u32>],
     ) {
         assert_eq!(5, prim.len());
@@ -156,7 +155,7 @@ impl PrimImpl for RectPrimitive {
         prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
         assert_eq!(6, idx.len());
         for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
-            let index = offset | corner << 24 | PRIM_RECT << 26;
+            let index = base_index | corner << 24 | PRIM_RECT << 26;
             idx[i].write(index);
         }
     }
@@ -189,7 +188,7 @@ impl PrimImpl for TextPrimitive {
         &self,
         texts: &[ExtractedText],
         prim: &mut [MaybeUninit<f32>],
-        mut offset: u32,
+        mut base_index: u32,
         idx: &mut [MaybeUninit<u32>],
     ) {
         let index = self.id as usize;
@@ -221,11 +220,11 @@ impl PrimImpl for TextPrimitive {
             prim[ip + 8].write(uv_h);
             ip += Self::ITEM_PER_GLYPH;
             for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
-                let index = offset | corner << 24 | PRIM_TEXT << 26;
+                let index = base_index | corner << 24 | PRIM_RECT << 26;
                 idx[ii + i].write(index);
             }
             ii += Self::INDEX_PER_GLYPH;
-            offset += Self::ITEM_PER_GLYPH as u32;
+            base_index += Self::ITEM_PER_GLYPH as u32;
         }
     }
 }
