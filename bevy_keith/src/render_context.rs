@@ -287,7 +287,6 @@ impl<'c> RenderContext<'c> {
             id: text_id,
             rect: Rect { min: pos, max: pos },
             color: Color::RED, // FIXME - text.sections[0].style.color, // TODO - multi-section?
-            scale_factor: 1.5, // FIXME - get from window!
         });
     }
 }

@@ -29,6 +29,7 @@ pub(crate) trait PrimImpl {
         prim: &mut [MaybeUninit<f32>],
         base_index: u32,
         idx: &mut [MaybeUninit<u32>],
+        scale_factor: f32,
     );
 }
 
@@ -76,11 +77,12 @@ impl PrimImpl for Primitive {
         prim: &mut [MaybeUninit<f32>],
         offset: u32,
         idx: &mut [MaybeUninit<u32>],
+        scale_factor: f32,
     ) {
         match &self {
-            Primitive::Line(l) => l.write(texts, prim, offset, idx),
-            Primitive::Rect(r) => r.write(texts, prim, offset, idx),
-            Primitive::Text(t) => t.write(texts, prim, offset, idx),
+            Primitive::Line(l) => l.write(texts, prim, offset, idx, scale_factor),
+            Primitive::Rect(r) => r.write(texts, prim, offset, idx, scale_factor),
+            Primitive::Text(t) => t.write(texts, prim, offset, idx, scale_factor),
         };
     }
 }
@@ -104,6 +106,7 @@ impl PrimImpl for LinePrimitive {
         prim: &mut [MaybeUninit<f32>],
         base_index: u32,
         idx: &mut [MaybeUninit<u32>],
+        _scale_factor: f32,
     ) {
         assert_eq!(6, prim.len());
         prim[0].write(self.start.x);
@@ -146,6 +149,7 @@ impl PrimImpl for RectPrimitive {
         prim: &mut [MaybeUninit<f32>],
         base_index: u32,
         idx: &mut [MaybeUninit<u32>],
+        _scale_factor: f32,
     ) {
         assert_eq!(5, prim.len());
         prim[0].write(self.rect.min.x);
@@ -166,7 +170,6 @@ pub struct TextPrimitive {
     pub id: u32,
     pub rect: Rect,
     pub color: Color,
-    pub scale_factor: f32,
 }
 
 impl TextPrimitive {
@@ -191,6 +194,7 @@ impl PrimImpl for TextPrimitive {
         prim: &mut [MaybeUninit<f32>],
         mut base_index: u32,
         idx: &mut [MaybeUninit<u32>],
+        scale_factor: f32,
     ) {
         let index = self.id as usize;
         let glyphs = &texts[index].glyphs;
@@ -199,7 +203,7 @@ impl PrimImpl for TextPrimitive {
         assert_eq!(glyph_count * Self::INDEX_PER_GLYPH, idx.len());
         let mut ip = 0;
         let mut ii = 0;
-        let inv_scale_factor = 1. / self.scale_factor;
+        let inv_scale_factor = 1. / scale_factor;
         for i in 0..glyph_count {
             let x = self.rect.min.x + glyphs[i].offset.x;
             let y = self.rect.min.y + glyphs[i].offset.y;

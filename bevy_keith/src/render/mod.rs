@@ -829,6 +829,7 @@ pub(crate) fn prepare_primitives(
                     &mut prim_slice[..prim_size],
                     offset,
                     &mut idx_slice[..idx_size],
+                    extracted_canvas.scale_factor,
                 );
 
                 // Apply new storage sizes
