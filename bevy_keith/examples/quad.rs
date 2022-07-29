@@ -14,6 +14,10 @@ use bevy_keith::*;
 
 fn main() {
     App::default()
+        // .insert_resource(WindowDescriptor {
+        //     scale_factor_override: Some(1.0),
+        //     ..Default::default()
+        // })
         .insert_resource(WgpuSettings {
             power_preference: PowerPreference::HighPerformance,
             ..default()
@@ -44,11 +48,29 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         min: Vec2::splat(-400.),
         max: Vec2::splat(100.),
     });
-    canvas.set_background_color(Some(Color::BEIGE));
+    //canvas.set_background_color(Some(Color::BEIGE));
+    canvas.set_background_color(None);
     commands
         .spawn_bundle(OrthographicCameraBundle::new_2d())
         .insert(canvas)
-        .insert(MyFont { font });
+        .insert(MyFont { font: font.clone() });
+
+    commands.spawn_bundle(Text2dBundle {
+        text: Text::with_section(
+            "Hello World!".to_string(),
+            TextStyle {
+                font,
+                font_size: 24.0,
+                color: Color::ORANGE_RED,
+            },
+            TextAlignment {
+                vertical: VerticalAlign::Bottom,
+                horizontal: HorizontalAlign::Left,
+            },
+        ),
+        transform: Transform::from_translation(Vec3::new(0., -16., 0.)),
+        ..default()
+    });
 }
 
 fn run(mut query: Query<(&mut Canvas, &MyFont)>) {
@@ -59,19 +81,19 @@ fn run(mut query: Query<(&mut Canvas, &MyFont)>) {
 
     //ctx.clear(None, Color::FUCHSIA);
 
-    let brush = ctx.solid_brush(Color::BISQUE);
-    let rect = Rect {
-        min: Vec2::new(-10., -30.),
-        max: Vec2::new(30., 130.),
-    };
-    ctx.fill(rect, &brush);
+    // let brush = ctx.solid_brush(Color::BISQUE);
+    // let rect = Rect {
+    //     min: Vec2::new(-10., -30.),
+    //     max: Vec2::new(30., 130.),
+    // };
+    // ctx.fill(rect, &brush);
 
-    let brush = ctx.solid_brush(Color::PINK);
-    let rect = Rect {
-        min: Vec2::ZERO,
-        max: Vec2::splat(50.),
-    };
-    ctx.fill(rect, &brush);
+    // let brush = ctx.solid_brush(Color::PINK);
+    // let rect = Rect {
+    //     min: Vec2::ZERO,
+    //     max: Vec2::splat(50.),
+    // };
+    // ctx.fill(rect, &brush);
 
     let text = ctx
         .new_layout("Hello World!")

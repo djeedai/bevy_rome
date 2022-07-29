@@ -88,10 +88,12 @@ fn vertex(
     if (prim.kind == 0u) // RECT
     {
         var rect = load_rect(prim.offset);
-        vertex_position = rect.pos + rect.size * prim.corner;
+        vertex_position = rect.pos + rect.size * (prim.corner - 0.5); // FIXME : "-0.5" because glyphs (and not general RECTs) have a position from their center instead of lower left corner!!! Need to bake that into primitive!!!
         out.color = rect.color;
 #ifdef TEXTURED
-        out.uv = rect.uv_pos + rect.uv_size * prim.corner;
+        //out.uv = rect.uv_pos + rect.uv_size * prim.corner;
+        var uv_corner = vec2<f32>(prim.corner.x, 1.0 - prim.corner.y); // UVs flipped vertically in glyphs
+        out.uv = rect.uv_pos + rect.uv_size * uv_corner;
 #endif
     }
     out.position = view.view_proj * vec4<f32>(vertex_position, 0.0, 1.0);
@@ -102,7 +104,8 @@ fn vertex(
 fn fragment(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     var color = in.color;
 #ifdef TEXTURED
-    color = vec4<f32>(color.xyz, color.a * textureSample(quad_texture, quad_sampler, in.uv).a);
+    var alpha = textureSample(quad_texture, quad_sampler, in.uv).a;
+    color = vec4<f32>(color.xyz, color.a * alpha);
 #endif
     return color;
 }

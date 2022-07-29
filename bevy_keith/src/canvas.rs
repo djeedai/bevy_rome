@@ -166,6 +166,7 @@ pub struct TextPrimitive {
     pub id: u32,
     pub rect: Rect,
     pub color: Color,
+    pub scale_factor: f32,
 }
 
 impl TextPrimitive {
@@ -198,6 +199,7 @@ impl PrimImpl for TextPrimitive {
         assert_eq!(glyph_count * Self::INDEX_PER_GLYPH, idx.len());
         let mut ip = 0;
         let mut ii = 0;
+        let inv_scale_factor = 1. / self.scale_factor;
         for i in 0..glyph_count {
             let x = self.rect.min.x + glyphs[i].offset.x;
             let y = self.rect.min.y + glyphs[i].offset.y;
@@ -207,10 +209,10 @@ impl PrimImpl for TextPrimitive {
             let uv_y = glyphs[i].uv_rect.min.y / 512.0;
             let uv_w = glyphs[i].uv_rect.max.x / 512.0 - uv_x;
             let uv_h = glyphs[i].uv_rect.max.y / 512.0 - uv_y;
-            prim[ip + 0].write(x);
-            prim[ip + 1].write(y);
-            prim[ip + 2].write(w);
-            prim[ip + 3].write(h);
+            prim[ip + 0].write(x * inv_scale_factor);
+            prim[ip + 1].write(y * inv_scale_factor);
+            prim[ip + 2].write(w * inv_scale_factor);
+            prim[ip + 3].write(h * inv_scale_factor);
             // FIXME - self.color vs. glyph.color ?!!!
             //prim[ip + 4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
             prim[ip + 4].write(bytemuck::cast(glyphs[i].color));

@@ -647,6 +647,7 @@ pub(crate) fn extract_primitives(
 
                 let mut extracted_glyphs = vec![];
                 for text_glyph in &text_layout.glyphs {
+                    trace!("glyph: position={:?} size={:?}", text_glyph.position, text_glyph.size);
                     let color = text.sections[text_glyph.section_index]
                         .style
                         .color

@@ -159,10 +159,10 @@ impl<'c> TextLayoutBuilder<'c> {
                 value: self.value,
             }],
             alignment: TextAlignment {
-                vertical: VerticalAlign::Center,
-                horizontal: HorizontalAlign::Center,
+                vertical: VerticalAlign::Bottom,
+                horizontal: HorizontalAlign::Left,
             },
-            bounds: Size::new(100., 20.),
+            bounds: Size::new(f32::MAX, f32::MAX), // TODO - bounds
         };
         self.canvas.finish_layout(layout)
     }
@@ -287,6 +287,7 @@ impl<'c> RenderContext<'c> {
             id: text_id,
             rect: Rect { min: pos, max: pos },
             color: Color::RED, // FIXME - text.sections[0].style.color, // TODO - multi-section?
+            scale_factor: 1.5, // FIXME - get from window!
         });
     }
 }
