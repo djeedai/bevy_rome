@@ -6,7 +6,7 @@ use bevy::{
         query::Changed,
         system::{Local, Query, Res, ResMut},
     },
-    math::{Size, Vec2},
+    math::Vec2,
     render::texture::Image,
     sprite::TextureAtlas,
     text::{Font, FontAtlasSet, TextAlignment, TextError, TextPipeline, TextSection},

@@ -2,8 +2,8 @@ use std::{ops::Range, primitive};
 
 use bevy::{
     asset::{Asset, AssetEvent, Handle, HandleId},
-    core::{FloatOrd, Pod, Zeroable},
-    core_pipeline::Transparent2d,
+    core::{Pod, Zeroable},
+    core_pipeline::core_2d::Transparent2d,
     ecs::{
         component::Component,
         entity::Entity,
@@ -13,33 +13,33 @@ use bevy::{
         },
         world::{FromWorld, World},
     },
-    math::{const_vec2, Mat2},
+    math::Mat2,
     prelude::*,
     reflect::Uuid,
-    render::{
+    render::{MainWorld,
         render_asset::RenderAssets,
         render_phase::{
             BatchedPhaseItem, DrawFunctions, EntityRenderCommand, RenderCommand,
             RenderCommandResult, RenderPhase, SetItemPipeline, TrackedRenderPass,
         },
         render_resource::{
-            std140::AsStd140, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
+            BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
             BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType,
             BlendState, Buffer, BufferBinding, BufferBindingType, BufferInitDescriptor, BufferSize,
             BufferUsages, BufferVec, ColorTargetState, ColorWrites, FragmentState, FrontFace,
             IndexFormat, MultisampleState, PipelineCache, PolygonMode, PrimitiveState,
             PrimitiveTopology, RenderPipelineDescriptor, SamplerBindingType, ShaderStages,
-            SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat,
+            ShaderType, SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat,
             TextureSampleType, TextureViewDimension, VertexBufferLayout, VertexFormat, VertexState,
             VertexStepMode,
         },
         renderer::{RenderDevice, RenderQueue},
         texture::{BevyDefault, Image},
         view::{Msaa, ViewUniform, ViewUniformOffset, ViewUniforms},
-        RenderWorld,
+        Extract,
     },
     sprite::Rect as SRect,
-    utils::HashMap,
+    utils::{FloatOrd, HashMap},
     window::WindowId,
 };
 use copyless::VecHelper;
@@ -271,7 +271,7 @@ impl FromWorld for PrimitivePipeline {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: true,
-                    min_binding_size: BufferSize::new(ViewUniform::std140_size_static() as u64),
+                    min_binding_size: Some(ViewUniform::min_size()),
                 },
                 count: None,
             }],
@@ -370,11 +370,11 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
                 shader: PRIMITIVE_SHADER_HANDLE.typed::<Shader>(),
                 shader_defs,
                 entry_point: "fragment".into(),
-                targets: vec![ColorTargetState {
+                targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
-                }],
+                })],
             }),
             layout: Some(layouts),
             primitive: PrimitiveState {
@@ -400,17 +400,17 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
 const QUAD_INDICES: [usize; 6] = [0, 2, 3, 0, 1, 2];
 
 const QUAD_VERTEX_POSITIONS: [Vec2; 4] = [
-    const_vec2!([-0.5, -0.5]),
-    const_vec2!([0.5, -0.5]),
-    const_vec2!([0.5, 0.5]),
-    const_vec2!([-0.5, 0.5]),
+    Vec2::from_array([-0.5, -0.5]),
+    Vec2::from_array([0.5, -0.5]),
+    Vec2::from_array([0.5, 0.5]),
+    Vec2::from_array([-0.5, 0.5]),
 ];
 
 const QUAD_UVS: [Vec2; 4] = [
-    const_vec2!([0., 1.]),
-    const_vec2!([1., 1.]),
-    const_vec2!([1., 0.]),
-    const_vec2!([0., 0.]),
+    Vec2::from_array([0., 1.]),
+    Vec2::from_array([1., 1.]),
+    Vec2::from_array([1., 0.]),
+    Vec2::from_array([0., 0.]),
 ];
 
 #[derive(Default)]
@@ -534,12 +534,11 @@ fn clone_asset_event_weak<T: Asset>(event: &AssetEvent<T>) -> AssetEvent<T> {
 /// Render app system consuming asset events for [`Image`] components to react
 /// to changes to the content of primitive textures.
 pub(crate) fn extract_primitive_events(
-    mut render_world: ResMut<RenderWorld>,
-    mut image_events: EventReader<AssetEvent<Image>>,
+    mut events: ResMut<PrimitiveAssetEvents>,
+    mut image_events: Extract<EventReader<AssetEvent<Image>>>,
 ) {
     //trace!("extract_primitive_events");
 
-    let mut events = render_world.resource_mut::<PrimitiveAssetEvents>();
     let PrimitiveAssetEvents { ref mut images } = *events;
 
     images.clear();
@@ -578,11 +577,11 @@ pub(crate) struct ExtractedGlyph {
 /// An optional [`Visibility`] component can be added to that same entity to dynamically
 /// control the canvas visibility. By default if absent the canvas is assumed visible.
 pub(crate) fn extract_primitives(
-    mut render_world: ResMut<RenderWorld>,
-    texture_atlases: Res<Assets<TextureAtlas>>,
-    windows: Res<Windows>,
-    text_pipeline: Res<KeithTextPipeline>,
-    mut canvas_query: Query<(Entity, Option<&Visibility>, &mut Canvas, &GlobalTransform)>,
+    mut extracted_canvases: ResMut<ExtractedCanvases>,
+    texture_atlases: Extract<Res<Assets<TextureAtlas>>>,
+    windows: Extract<Res<Windows>>,
+    text_pipeline: Extract<Res<KeithTextPipeline>>,
+    canvas_query: Extract<Query<(Entity, Option<&Visibility>, &Canvas, &GlobalTransform)>>,
 ) {
     trace!("extract_primitives");
 
@@ -590,19 +589,18 @@ pub(crate) fn extract_primitives(
     let scale_factor = windows.scale_factor(WindowId::primary()) as f32;
     let inv_scale_factor = 1. / scale_factor;
 
-    let mut extracted_canvases = render_world.resource_mut::<ExtractedCanvases>();
     let mut extracted_canvases = &mut extracted_canvases.canvases;
 
     extracted_canvases.clear();
 
-    for (entity, maybe_visibility, mut canvas, transform) in canvas_query.iter_mut() {
+    for (entity, maybe_visibility, canvas, transform) in canvas_query.iter() {
         // Skip hidden canvases
         if !maybe_visibility.map_or(true, |vis| vis.is_visible) {
             continue;
         }
 
         // Swap render and main app primitive buffer
-        let primitives = canvas.take_buffer();
+        let primitives = canvas.buffer().clone();
         trace!(
             "Canvas on Entity {:?} has {} primitives and {} text layouts",
             entity,
@@ -621,8 +619,8 @@ pub(crate) fn extract_primitives(
             trace!("Extracting text {:?}...", text_id);
 
             if let Some(text_layout) = text_pipeline.get_glyphs(&text_id) {
-                let width = text_layout.size.width * inv_scale_factor;
-                let height = text_layout.size.height * inv_scale_factor;
+                let width = text_layout.size.x * inv_scale_factor;
+                let height = text_layout.size.y * inv_scale_factor;
 
                 trace!(
                     "-> {} glyphs, w={} h={} scale={}",
@@ -647,7 +645,11 @@ pub(crate) fn extract_primitives(
 
                 let mut extracted_glyphs = vec![];
                 for text_glyph in &text_layout.glyphs {
-                    trace!("glyph: position={:?} size={:?}", text_glyph.position, text_glyph.size);
+                    trace!(
+                        "glyph: position={:?} size={:?}",
+                        text_glyph.position,
+                        text_glyph.size
+                    );
                     let color = text.sections[text_glyph.section_index]
                         .style
                         .color
@@ -1104,7 +1106,7 @@ pub fn queue_primitives(
             is_textured,
         );
 
-        let sort_key = FloatOrd(extracted_canvas.transform.translation.z);
+        let sort_key = FloatOrd(extracted_canvas.transform.translation().z);
 
         // FIXME - Use VisibleEntities to optimize per-view
         for mut transparent_phase in views.iter_mut() {

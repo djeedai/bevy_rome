@@ -85,7 +85,7 @@ pub struct TextLayout {
     pub(crate) id: u32,
     pub(crate) sections: Vec<TextSection>,
     pub(crate) alignment: TextAlignment,
-    pub(crate) bounds: Size<f32>,
+    pub(crate) bounds: Vec2,
 }
 
 // impl piet::TextLayout for TextLayout {
@@ -162,7 +162,7 @@ impl<'c> TextLayoutBuilder<'c> {
                 vertical: VerticalAlign::Bottom,
                 horizontal: HorizontalAlign::Left,
             },
-            bounds: Size::new(f32::MAX, f32::MAX), // TODO - bounds
+            bounds: Vec2::new(f32::MAX, f32::MAX), // TODO - bounds
         };
         self.canvas.finish_layout(layout)
     }

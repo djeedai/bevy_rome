@@ -8,7 +8,7 @@ use bevy::{
     },
     sprite::Rect,
 };
-use bevy_inspector_egui::WorldInspectorPlugin;
+//use bevy_inspector_egui::WorldInspectorPlugin;
 
 use bevy_keith::*;
 
@@ -28,9 +28,9 @@ fn main() {
             filter: "bevy_keith=trace,spawn=trace".to_string(),
         })
         .add_plugins(DefaultPlugins)
-        .add_system(bevy::input::system::exit_on_esc_system)
+        .add_system(bevy::window::close_on_esc)
         .add_plugin(KeithPlugin)
-        .add_plugin(WorldInspectorPlugin::new())
+        //.add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .add_system(run)
         .run();
@@ -42,32 +42,31 @@ struct MyFont {
 }
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let font = asset_server.load("FiraMono-Regular.ttf");
+    let font = asset_server.load("FiraSans-Regular.ttf");
 
     let mut canvas = Canvas::new(Rect {
         min: Vec2::splat(-400.),
         max: Vec2::splat(100.),
     });
-    //canvas.set_background_color(Some(Color::BEIGE));
-    canvas.set_background_color(None);
+    canvas.set_background_color(Some(Color::BEIGE));
     commands
-        .spawn_bundle(OrthographicCameraBundle::new_2d())
+        .spawn_bundle(Camera2dBundle::default())
         .insert(canvas)
         .insert(MyFont { font: font.clone() });
 
     commands.spawn_bundle(Text2dBundle {
-        text: Text::with_section(
+        text: Text::from_section(
             "Hello World!".to_string(),
             TextStyle {
                 font,
                 font_size: 24.0,
-                color: Color::ORANGE_RED,
+                color: Color::BLACK,
             },
-            TextAlignment {
-                vertical: VerticalAlign::Bottom,
-                horizontal: HorizontalAlign::Left,
-            },
-        ),
+        )
+        .with_alignment(TextAlignment {
+            vertical: VerticalAlign::Bottom,
+            horizontal: HorizontalAlign::Left,
+        }),
         transform: Transform::from_translation(Vec3::new(0., -16., 0.)),
         ..default()
     });
@@ -81,23 +80,23 @@ fn run(mut query: Query<(&mut Canvas, &MyFont)>) {
 
     //ctx.clear(None, Color::FUCHSIA);
 
-    // let brush = ctx.solid_brush(Color::BISQUE);
-    // let rect = Rect {
-    //     min: Vec2::new(-10., -30.),
-    //     max: Vec2::new(30., 130.),
-    // };
-    // ctx.fill(rect, &brush);
+    let brush = ctx.solid_brush(Color::BISQUE);
+    let rect = Rect {
+        min: Vec2::new(-10., -30.),
+        max: Vec2::new(30., 130.),
+    };
+    ctx.fill(rect, &brush);
 
-    // let brush = ctx.solid_brush(Color::PINK);
-    // let rect = Rect {
-    //     min: Vec2::ZERO,
-    //     max: Vec2::splat(50.),
-    // };
-    // ctx.fill(rect, &brush);
+    let brush = ctx.solid_brush(Color::PINK);
+    let rect = Rect {
+        min: Vec2::ZERO,
+        max: Vec2::splat(50.),
+    };
+    ctx.fill(rect, &brush);
 
     let text = ctx
         .new_layout("Hello World!")
-        .color(Color::ORANGE_RED)
+        .color(Color::BLACK)
         .font(my_font.font.clone())
         .font_size(24.)
         .build();

@@ -348,8 +348,14 @@ impl Canvas {
         id
     }
 
+    // Currently unused; see buffer()
     pub(crate) fn take_buffer(&mut self) -> Vec<Primitive> {
         std::mem::take(&mut self.primitives)
+    }
+
+    // Workaround for Extract phase without mut access to MainWorld Canvas
+    pub(crate) fn buffer(&self) -> &Vec<Primitive> {
+        &self.primitives
     }
 
     pub(crate) fn text_layouts(&self) -> &[TextLayout] {

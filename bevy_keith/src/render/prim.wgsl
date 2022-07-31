@@ -1,46 +1,46 @@
 struct View {
-    view_proj: mat4x4<f32>;
-    world_position: vec3<f32>;
+    view_proj: mat4x4<f32>,
+    world_position: vec3<f32>,
 };
 
 struct Primitives {
-    elems: array<f32>;
+    elems: array<f32>,
 };
 
-[[group(0), binding(0)]]
+@group(0) @binding(0)
 var<uniform> view: View;
 
-[[group(1), binding(0)]]
+@group(1) @binding(0)
 var<storage> primitives: Primitives;
 
 #ifdef TEXTURED
-[[group(2), binding(0)]]
+@group(2) @binding(0)
 var quad_texture: texture_2d<f32>;
-[[group(2), binding(1)]]
+@group(2) @binding(1)
 var quad_sampler: sampler;
 #endif
 
 struct VertexOutput {
-    [[builtin(position)]] position: vec4<f32>;
-    [[location(0)]] color: vec4<f32>;
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
 #ifdef TEXTURED
-    [[location(1)]] uv: vec2<f32>;
+    @location(1) uv: vec2<f32>,
 #endif
 };
 
 struct Primitive {
-    offset: u32;
-    kind: u32;
-    corner: vec2<f32>;
+    offset: u32,
+    kind: u32,
+    corner: vec2<f32>,
 };
 
 struct Rect {
-    pos: vec2<f32>;
-    size: vec2<f32>;
-    color: vec4<f32>;
+    pos: vec2<f32>,
+    size: vec2<f32>,
+    color: vec4<f32>,
 #ifdef TEXTURED
-    uv_pos: vec2<f32>;
-    uv_size: vec2<f32>;
+    uv_pos: vec2<f32>,
+    uv_size: vec2<f32>,
 #endif
 };
 
@@ -78,9 +78,9 @@ fn load_rect(offset: u32) -> Rect {
     return rect;
 }
 
-[[stage(vertex)]]
+@vertex
 fn vertex(
-    [[builtin(vertex_index)]] vertex_index: u32,
+    @builtin(vertex_index) vertex_index: u32,
 ) -> VertexOutput {
     var prim = unpack_index(vertex_index);
     var out: VertexOutput;
@@ -100,8 +100,8 @@ fn vertex(
     return out;
 }
 
-[[stage(fragment)]]
-fn fragment(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var color = in.color;
 #ifdef TEXTURED
     var alpha = textureSample(quad_texture, quad_sampler, in.uv).a;
