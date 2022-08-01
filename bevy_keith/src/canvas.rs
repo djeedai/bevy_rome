@@ -33,8 +33,32 @@ pub(crate) trait PrimImpl {
     );
 }
 
-const PRIM_RECT: u32 = 0;
-const PRIM_LINE: u32 = 1;
+/// Kind of primitives understood by the GPU shader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum GpuPrimitiveKind {
+    Rect = 0,
+    Line = 1,
+}
+
+/// Encoded vertex index passed to the GPU shader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GpuIndex(u32);
+
+impl GpuIndex {
+    /// Create a new encoded index from a base primitive buffer index, a corner specification,
+    /// and a kind of primitive to draw.
+    #[inline]
+    pub fn new(base_index: u32, corner: u8, kind: GpuPrimitiveKind) -> Self {
+        GpuIndex(base_index | ((corner as u32) << 24) | ((kind as u32) << 26))
+    }
+
+    /// Get the raw encoded index value.
+    #[inline]
+    pub fn raw(&self) -> u32 {
+        self.0
+    }
+}
 
 /// Drawing primitives.
 #[derive(Debug, Clone, Copy)]
@@ -117,21 +141,31 @@ impl PrimImpl for LinePrimitive {
         prim[5].write(self.thickness);
         assert_eq!(6, idx.len());
         for (i, corner) in [0, 2, 3, 0, 1, 2].iter().enumerate() {
-            let index = base_index | corner << 24 | PRIM_LINE << 26;
-            idx[i].write(index);
+            let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Line);
+            idx[i].write(index.raw());
         }
     }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct RectPrimitive {
+    /// Position and size of the rectangle in its canvas space.
     pub rect: Rect,
+    /// Uniform rectangle color.
     pub color: Color,
+    /// Flip the image (if any) along the horizontal axis.
     pub flip_x: bool,
+    /// Flip the image (if any) along the vertical axis.
     pub flip_y: bool,
 }
 
 impl RectPrimitive {
+    /// Number of primitive buffer rows (4 bytes) per primitive.
+    const PRIMITIVE_COUNT: usize = 5;
+
+    /// Number of indices per primitive (2 triangles).
+    const INDEX_COUNT: usize = 6;
+
     pub fn center(&self) -> Vec3 {
         let c = (self.rect.min + self.rect.max) * 0.5;
         Vec3::new(c.x, c.y, 0.)
@@ -140,7 +174,7 @@ impl RectPrimitive {
 
 impl PrimImpl for RectPrimitive {
     fn sizes(&self, _texts: &[ExtractedText]) -> (usize, usize) {
-        (5, 6)
+        (Self::PRIMITIVE_COUNT, Self::INDEX_COUNT)
     }
 
     fn write(
@@ -159,8 +193,8 @@ impl PrimImpl for RectPrimitive {
         prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
         assert_eq!(6, idx.len());
         for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
-            let index = base_index | corner << 24 | PRIM_RECT << 26;
-            idx[i].write(index);
+            let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Rect);
+            idx[i].write(index.raw());
         }
     }
 }
@@ -182,7 +216,10 @@ impl PrimImpl for TextPrimitive {
         let index = self.id as usize;
         if index < texts.len() {
             let glyph_count = texts[index].glyphs.len();
-            (glyph_count * Self::ITEM_PER_GLYPH, glyph_count * Self::INDEX_PER_GLYPH)
+            (
+                glyph_count * Self::ITEM_PER_GLYPH,
+                glyph_count * Self::INDEX_PER_GLYPH,
+            )
         } else {
             (0, 0)
         }
@@ -232,8 +269,8 @@ impl PrimImpl for TextPrimitive {
             prim[ip + 8].write(uv_h);
             ip += Self::ITEM_PER_GLYPH;
             for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
-                let index = base_index | corner << 24 | PRIM_RECT << 26;
-                idx[ii + i].write(index);
+                let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Rect);
+                idx[ii + i].write(index.raw());
             }
             ii += Self::INDEX_PER_GLYPH;
             base_index += Self::ITEM_PER_GLYPH as u32;
