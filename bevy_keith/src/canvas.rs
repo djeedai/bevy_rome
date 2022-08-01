@@ -17,10 +17,16 @@ use crate::{
     text::CanvasTextId,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PrimitiveInfo {
+    pub row_count: u32,
+    pub index_count: u32,
+}
+
 /// Implementation trait for primitives.
 pub(crate) trait PrimImpl {
     /// Get the size of the primitive and index buffers, in number of elements.
-    fn sizes(&self, texts: &[ExtractedText]) -> (usize, usize);
+    fn info(&self, texts: &[ExtractedText]) -> PrimitiveInfo;
 
     /// Write the primitive and index buffers into the provided slices.
     fn write(
@@ -87,11 +93,11 @@ impl From<TextPrimitive> for Primitive {
 }
 
 impl PrimImpl for Primitive {
-    fn sizes(&self, texts: &[ExtractedText]) -> (usize, usize) {
+    fn info(&self, texts: &[ExtractedText]) -> PrimitiveInfo {
         match &self {
-            Primitive::Line(l) => l.sizes(texts),
-            Primitive::Rect(r) => r.sizes(texts),
-            Primitive::Text(t) => t.sizes(texts),
+            Primitive::Line(l) => l.info(texts),
+            Primitive::Rect(r) => r.info(texts),
+            Primitive::Text(t) => t.info(texts),
         }
     }
 
@@ -120,8 +126,11 @@ pub struct LinePrimitive {
 }
 
 impl PrimImpl for LinePrimitive {
-    fn sizes(&self, _texts: &[ExtractedText]) -> (usize, usize) {
-        (6, 6)
+    fn info(&self, _texts: &[ExtractedText]) -> PrimitiveInfo {
+        PrimitiveInfo {
+            row_count: 6,
+            index_count: 6,
+        }
     }
 
     fn write(
@@ -161,10 +170,10 @@ pub struct RectPrimitive {
 
 impl RectPrimitive {
     /// Number of primitive buffer rows (4 bytes) per primitive.
-    const PRIMITIVE_COUNT: usize = 5;
+    const ROW_COUNT: u32 = 5;
 
     /// Number of indices per primitive (2 triangles).
-    const INDEX_COUNT: usize = 6;
+    const INDEX_COUNT: u32 = 6;
 
     pub fn center(&self) -> Vec3 {
         let c = (self.rect.min + self.rect.max) * 0.5;
@@ -173,8 +182,11 @@ impl RectPrimitive {
 }
 
 impl PrimImpl for RectPrimitive {
-    fn sizes(&self, _texts: &[ExtractedText]) -> (usize, usize) {
-        (Self::PRIMITIVE_COUNT, Self::INDEX_COUNT)
+    fn info(&self, _texts: &[ExtractedText]) -> PrimitiveInfo {
+        PrimitiveInfo {
+            row_count: Self::ROW_COUNT,
+            index_count: Self::INDEX_COUNT,
+        }
     }
 
     fn write(
@@ -207,21 +219,24 @@ pub struct TextPrimitive {
 }
 
 impl TextPrimitive {
-    const ITEM_PER_GLYPH: usize = 9;
-    const INDEX_PER_GLYPH: usize = 6;
+    const ROW_PER_GLYPH: u32 = 9;
+    const INDEX_PER_GLYPH: u32 = 6;
 }
 
 impl PrimImpl for TextPrimitive {
-    fn sizes(&self, texts: &[ExtractedText]) -> (usize, usize) {
+    fn info(&self, texts: &[ExtractedText]) -> PrimitiveInfo {
         let index = self.id as usize;
         if index < texts.len() {
-            let glyph_count = texts[index].glyphs.len();
-            (
-                glyph_count * Self::ITEM_PER_GLYPH,
-                glyph_count * Self::INDEX_PER_GLYPH,
-            )
+            let glyph_count = texts[index].glyphs.len() as u32;
+            PrimitiveInfo {
+                row_count: glyph_count * Self::ROW_PER_GLYPH,
+                index_count: glyph_count * Self::INDEX_PER_GLYPH,
+            }
         } else {
-            (0, 0)
+            PrimitiveInfo {
+                row_count: 0,
+                index_count: 0,
+            }
         }
     }
 
@@ -236,8 +251,8 @@ impl PrimImpl for TextPrimitive {
         let index = self.id as usize;
         let glyphs = &texts[index].glyphs;
         let glyph_count = glyphs.len();
-        assert_eq!(glyph_count * Self::ITEM_PER_GLYPH, prim.len());
-        assert_eq!(glyph_count * Self::INDEX_PER_GLYPH, idx.len());
+        assert_eq!(glyph_count * Self::ROW_PER_GLYPH as usize, prim.len());
+        assert_eq!(glyph_count * Self::INDEX_PER_GLYPH as usize, idx.len());
         let mut ip = 0;
         let mut ii = 0;
         let inv_scale_factor = 1. / scale_factor;
@@ -267,13 +282,13 @@ impl PrimImpl for TextPrimitive {
             prim[ip + 6].write(uv_y);
             prim[ip + 7].write(uv_w);
             prim[ip + 8].write(uv_h);
-            ip += Self::ITEM_PER_GLYPH;
+            ip += Self::ROW_PER_GLYPH as usize;
             for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
-                let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Rect);
+                let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Rect, 0);
                 idx[ii + i].write(index.raw());
             }
-            ii += Self::INDEX_PER_GLYPH;
-            base_index += Self::ITEM_PER_GLYPH as u32;
+            ii += Self::INDEX_PER_GLYPH as usize;
+            base_index += Self::ROW_PER_GLYPH;
         }
     }
 }

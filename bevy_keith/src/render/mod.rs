@@ -16,7 +16,7 @@ use bevy::{
     math::Mat2,
     prelude::*,
     reflect::Uuid,
-    render::{MainWorld,
+    render::{
         render_asset::RenderAssets,
         render_phase::{
             BatchedPhaseItem, DrawFunctions, EntityRenderCommand, RenderCommand,
@@ -36,7 +36,7 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
         texture::{BevyDefault, Image},
         view::{Msaa, ViewUniform, ViewUniformOffset, ViewUniforms},
-        Extract,
+        Extract, MainWorld,
     },
     sprite::Rect as SRect,
     utils::{FloatOrd, HashMap},
@@ -45,7 +45,7 @@ use bevy::{
 use copyless::VecHelper;
 
 use crate::{
-    canvas::{Canvas, PrimImpl, Primitive},
+    canvas::{Canvas, PrimImpl, Primitive, PrimitiveInfo},
     text::{CanvasTextId, KeithTextPipeline},
     PRIMITIVE_SHADER_HANDLE,
 };
@@ -716,13 +716,18 @@ pub(crate) fn extract_primitives(
     }
 }
 
-pub(crate) struct PrimIter<'a> {
+/// Iterator over sub-primitives of a primitive.
+pub(crate) struct SubPrimIter<'a> {
+    /// The current primitive being iterated over, or `None` if the iterator
+    /// reached the end of the iteration sequence.
     prim: Option<Primitive>,
+    /// The index of the current sub-primitive inside its parent primitive.
     index: usize,
+    /// Text information for iterating over glyphs.
     texts: &'a [ExtractedText],
 }
 
-impl<'a> PrimIter<'a> {
+impl<'a> SubPrimIter<'a> {
     pub fn new(prim: Primitive, texts: &'a [ExtractedText]) -> Self {
         Self {
             prim: Some(prim),
@@ -732,13 +737,15 @@ impl<'a> PrimIter<'a> {
     }
 }
 
-impl<'a> Iterator for PrimIter<'a> {
+impl<'a> Iterator for SubPrimIter<'a> {
     type Item = (HandleId, u32);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(prim) = self.prim {
-            let (_, idx_size) = prim.sizes(self.texts);
-            let idx_size = idx_size as u32;
+        if let Some(prim) = &self.prim {
+            let PrimitiveInfo {
+                row_count: _,
+                index_count,
+            } = prim.info(self.texts);
             match prim {
                 Primitive::Text(text) => {
                     if text.id as usize >= self.texts.len() {
@@ -748,7 +755,7 @@ impl<'a> Iterator for PrimIter<'a> {
                     if self.index < self.texts.len() {
                         let image_handle_id = text.glyphs[self.index].handle_id;
                         self.index += 1;
-                        Some((image_handle_id, idx_size))
+                        Some((image_handle_id, index_count))
                     } else {
                         self.prim = None;
                         None
@@ -757,7 +764,7 @@ impl<'a> Iterator for PrimIter<'a> {
                 _ => {
                     self.prim = None;
                     // Currently all other primitives are non-textured
-                    Some((NIL_HANDLE_ID, idx_size))
+                    Some((NIL_HANDLE_ID, index_count))
                 }
             }
         } else {
@@ -817,35 +824,40 @@ pub(crate) fn prepare_primitives(
             let offset = primitives.len() as u32;
 
             // Serialize the primitive
-            let (prim_size, idx_size) = prim.sizes(&extracted_canvas.texts[..]);
-            trace!("=> ps={} is={}", prim_size, idx_size);
-            if prim_size > 0 && idx_size > 0 {
-                primitives.reserve(prim_size);
-                indices.reserve(idx_size);
+            let PrimitiveInfo {
+                row_count,
+                index_count,
+            } = prim.info(&extracted_canvas.texts[..]);
+            trace!("=> ps={} is={}", row_count, index_count);
+            if row_count > 0 && index_count > 0 {
+                let row_count = row_count as usize;
+                let index_count = index_count as usize;
+                primitives.reserve(row_count);
+                indices.reserve(index_count);
                 let prim_slice = primitives.spare_capacity_mut();
                 let idx_slice = indices.spare_capacity_mut();
 
                 // Write primitives and indices
                 prim.write(
                     &extracted_canvas.texts[..],
-                    &mut prim_slice[..prim_size],
+                    &mut prim_slice[..row_count],
                     offset,
-                    &mut idx_slice[..idx_size],
+                    &mut idx_slice[..index_count],
                     extracted_canvas.scale_factor,
                 );
 
                 // Apply new storage sizes
-                let new_prim_size = primitives.len() + prim_size;
-                unsafe { primitives.set_len(new_prim_size) };
-                let new_idx_size = indices.len() + idx_size;
-                unsafe { indices.set_len(new_idx_size) };
+                let new_row_count = primitives.len() + row_count;
+                unsafe { primitives.set_len(new_row_count) };
+                let new_index_count = indices.len() + index_count;
+                unsafe { indices.set_len(new_index_count) };
 
                 trace!("New primitive elements:");
-                for f in &primitives[new_prim_size - prim_size..new_prim_size] {
+                for f in &primitives[new_row_count - row_count..new_row_count] {
                     trace!("+ f32[] = {}", f);
                 }
                 trace!("New indices:");
-                for u in &indices[new_idx_size - idx_size..new_idx_size] {
+                for u in &indices[new_index_count - index_count..new_index_count] {
                     trace!("+ u32[] = {:x}", u);
                 }
             }
@@ -853,7 +865,7 @@ pub(crate) fn prepare_primitives(
             // Loop on sub-primitives; Text primitives expand to one Rect primitive
             // per glyph, each of which _can_ have a separate atlas texture so potentially
             // can split the draw into a new batch.
-            let batch_iter = PrimIter::new(*prim, &extracted_canvas.texts);
+            let batch_iter = SubPrimIter::new(*prim, &extracted_canvas.texts);
             for (image_handle_id, num_indices) in batch_iter {
                 let new_batch = PrimitiveBatch {
                     image_handle_id,
