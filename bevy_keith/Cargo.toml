@@ -16,4 +16,4 @@ copyless = "0.1.5"
 
 [[example]]
 name = "quad"
-required-features = [ "bevy/bevy_winit" ]
+required-features = [ "bevy/bevy_winit", "bevy/png" ]

@@ -1,6 +1,7 @@
 use std::mem::MaybeUninit;
 
 use bevy::{
+    asset::HandleId,
     ecs::{component::Component, reflect::ReflectComponent, system::Query},
     log::trace,
     math::{Vec2, Vec3},
@@ -29,6 +30,8 @@ pub(crate) trait PrimImpl {
     fn info(&self, texts: &[ExtractedText]) -> PrimitiveInfo;
 
     /// Write the primitive and index buffers into the provided slices.
+    ///
+    /// The `scale_factor` is a scaling for text glyphs only.
     fn write(
         &self,
         texts: &[ExtractedText],
@@ -40,23 +43,45 @@ pub(crate) trait PrimImpl {
 }
 
 /// Kind of primitives understood by the GPU shader.
+///
+/// # Note
+///
+/// The enum values must be kept in sync with the values inside the primitive shader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 enum GpuPrimitiveKind {
+    /// Axis-aligned rectangle, possibly textured.
     Rect = 0,
-    Line = 1,
+    /// Text glyph. Same as `Rect`, but samples from texture's alpha instead of RGB,
+    /// and is always textured.
+    Glyph = 1,
+    /// Line segment.
+    Line = 2,
 }
 
 /// Encoded vertex index passed to the GPU shader.
+///
+/// # Note
+///
+/// The encoding must be kept in sync with the values inside the primitive shader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct GpuIndex(u32);
 
 impl GpuIndex {
     /// Create a new encoded index from a base primitive buffer index, a corner specification,
     /// and a kind of primitive to draw.
+    ///
+    ///  31                                           0
+    /// [ ttt | kkk |  cc  | bbbbbbbb bbbbbbbb bbbbbbb ]
+    ///   Tex   Kind Corner          Base index
     #[inline]
-    pub fn new(base_index: u32, corner: u8, kind: GpuPrimitiveKind) -> Self {
-        GpuIndex(base_index | ((corner as u32) << 24) | ((kind as u32) << 26))
+    pub fn new(base_index: u32, corner: u8, kind: GpuPrimitiveKind, texture_index: u8) -> Self {
+        GpuIndex(
+            base_index
+                | ((corner as u32) << 24)
+                | ((kind as u32) << 26)
+                | ((texture_index as u32) << 29),
+        )
     }
 
     /// Get the raw encoded index value.
@@ -150,13 +175,13 @@ impl PrimImpl for LinePrimitive {
         prim[5].write(self.thickness);
         assert_eq!(6, idx.len());
         for (i, corner) in [0, 2, 3, 0, 1, 2].iter().enumerate() {
-            let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Line);
+            let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Line, 0);
             idx[i].write(index.raw());
         }
     }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct RectPrimitive {
     /// Position and size of the rectangle in its canvas space.
     pub rect: Rect,
@@ -166,11 +191,28 @@ pub struct RectPrimitive {
     pub flip_x: bool,
     /// Flip the image (if any) along the vertical axis.
     pub flip_y: bool,
+    /// Optional handle to the image used for texturing the rectangle.
+    /// This uses `HandleId` to retain the `Copy` trait.
+    pub image: Option<HandleId>, // Handle<Image>
+}
+
+impl Default for RectPrimitive {
+    fn default() -> Self {
+        Self {
+            rect: Rect::default(),
+            color: Color::default(),
+            flip_x: false,
+            flip_y: false,
+            image: None,
+        }
+    }
 }
 
 impl RectPrimitive {
     /// Number of primitive buffer rows (4 bytes) per primitive.
     const ROW_COUNT: u32 = 5;
+    /// Number of primitive buffer rows (4 bytes) per primitive when textured.
+    const ROW_COUNT_TEX: u32 = 9;
 
     /// Number of indices per primitive (2 triangles).
     const INDEX_COUNT: u32 = 6;
@@ -179,12 +221,21 @@ impl RectPrimitive {
         let c = (self.rect.min + self.rect.max) * 0.5;
         Vec3::new(c.x, c.y, 0.)
     }
+
+    #[inline]
+    const fn row_count(&self) -> u32 {
+        if self.image.is_some() {
+            Self::ROW_COUNT_TEX
+        } else {
+            Self::ROW_COUNT
+        }
+    }
 }
 
 impl PrimImpl for RectPrimitive {
     fn info(&self, _texts: &[ExtractedText]) -> PrimitiveInfo {
         PrimitiveInfo {
-            row_count: Self::ROW_COUNT,
+            row_count: self.row_count(),
             index_count: Self::INDEX_COUNT,
         }
     }
@@ -197,15 +248,21 @@ impl PrimImpl for RectPrimitive {
         idx: &mut [MaybeUninit<u32>],
         _scale_factor: f32,
     ) {
-        assert_eq!(5, prim.len());
+        assert_eq!(self.row_count() as usize, prim.len());
         prim[0].write(self.rect.min.x);
         prim[1].write(self.rect.min.y);
         prim[2].write(self.rect.max.x - self.rect.min.x);
         prim[3].write(self.rect.max.y - self.rect.min.y);
         prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
+        if self.image.is_some() {
+            prim[5].write(0.);
+            prim[6].write(1.);
+            prim[7].write(1.);
+            prim[8].write(-1.);
+        }
         assert_eq!(6, idx.len());
         for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
-            let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Rect);
+            let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Rect, 0);
             idx[i].write(index.raw());
         }
     }
@@ -284,7 +341,7 @@ impl PrimImpl for TextPrimitive {
             prim[ip + 8].write(uv_h);
             ip += Self::ROW_PER_GLYPH as usize;
             for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
-                let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Rect, 0);
+                let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Glyph, 0);
                 idx[ii + i].write(index.raw());
             }
             ii += Self::INDEX_PER_GLYPH as usize;

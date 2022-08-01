@@ -761,6 +761,15 @@ impl<'a> Iterator for SubPrimIter<'a> {
                         None
                     }
                 }
+                Primitive::Rect(rect) => {
+                    let handle_id = if let Some(id) = rect.image {
+                        id
+                    } else {
+                        NIL_HANDLE_ID
+                    };
+                    self.prim = None;
+                    Some((handle_id, index_count))
+                }
                 _ => {
                     self.prim = None;
                     // Currently all other primitives are non-textured
@@ -828,16 +837,18 @@ pub(crate) fn prepare_primitives(
                 row_count,
                 index_count,
             } = prim.info(&extracted_canvas.texts[..]);
-            trace!("=> ps={} is={}", row_count, index_count);
+            trace!("=> rs={} is={}", row_count, index_count);
             if row_count > 0 && index_count > 0 {
                 let row_count = row_count as usize;
                 let index_count = index_count as usize;
+
+                // Reserve some (uninitialized) storage for new data
                 primitives.reserve(row_count);
                 indices.reserve(index_count);
                 let prim_slice = primitives.spare_capacity_mut();
                 let idx_slice = indices.spare_capacity_mut();
 
-                // Write primitives and indices
+                // Write primitives and indices directly into storage
                 prim.write(
                     &extracted_canvas.texts[..],
                     &mut prim_slice[..row_count],
@@ -846,7 +857,7 @@ pub(crate) fn prepare_primitives(
                     extracted_canvas.scale_factor,
                 );
 
-                // Apply new storage sizes
+                // Apply new storage sizes once data is initialized
                 let new_row_count = primitives.len() + row_count;
                 unsafe { primitives.set_len(new_row_count) };
                 let new_index_count = indices.len() + index_count;

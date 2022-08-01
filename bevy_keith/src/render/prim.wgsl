@@ -29,9 +29,14 @@ struct VertexOutput {
 };
 
 struct Primitive {
+    /// Offset into the primitive buffer.
     offset: u32,
+    /// Kind of primitive.
     kind: u32,
+    /// Rectangle corner, in [0:1].
     corner: vec2<f32>,
+    /// Texture index.
+    tex_index: u32,
 };
 
 struct Rect {
@@ -50,7 +55,8 @@ fn unpack_index(vertex_index: u32) -> Primitive {
     let cx = (vertex_index & 0x01000000u) >> 24u;
     let cy = (vertex_index & 0x02000000u) >> 25u;
     p.corner = vec2<f32>(f32(cx), f32(cy));
-    p.kind = (vertex_index & 0xFC000000u) >> 26u;
+    p.kind = (vertex_index & 0x1C000000u) >> 26u;
+    p.tex_index = (vertex_index & 0xE0000000u) >> 29u;
     return p;
 }
 
@@ -85,7 +91,7 @@ fn vertex(
     var prim = unpack_index(vertex_index);
     var out: VertexOutput;
     var vertex_position: vec2<f32>;
-    if (prim.kind == 0u) // RECT
+    if (prim.kind <= 1u) // RECT or GLYPH
     {
         var rect = load_rect(prim.offset);
         vertex_position = rect.pos + rect.size * prim.corner;
@@ -102,8 +108,8 @@ fn vertex(
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var color = in.color;
 #ifdef TEXTURED
-    var alpha = textureSample(quad_texture, quad_sampler, in.uv).a;
-    color = vec4<f32>(color.xyz, color.a * alpha);
+    var rgba = textureSample(quad_texture, quad_sampler, in.uv);
+    color = color * rgba;
 #endif
     return color;
 }

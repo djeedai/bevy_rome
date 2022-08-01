@@ -20,7 +20,7 @@ Same as [🎨 Bevy Piet](../bevy_piet/), this allows easily drawing 2D graphics,
 
 Freeing ourselves from the Piet interface however allows a better integration with Bevy, and to limit the scope of the primitives supported to those of interest for UI, allowing for faster prototyping.
 
-Text rendering leverages Bevy's own `TextPipeline<T>`, and therefore shares the same texture atlases as regular text rendering (`Text` components). However, `bevy_keith` specializes it as `type KeithTextPipeline = TextPipeline<CanvasTextId>`, mapping each text to an ID inside a canvas rather than an `Entity` like the default Bevy text pipeline does; this allows drawing multiple texts per `Canvas` without having to spawn one `Entity` per text.
+Text rendering leverages Bevy's own `TextPipeline<T>`, and therefore shares the same texture atlases as regular text rendering (`Text` components). However, 📦 `bevy_keith` specializes it as `type KeithTextPipeline = TextPipeline<CanvasTextId>`, thereby mapping each text to an ID inside a canvas rather than to an `Entity` like the default Bevy text pipeline does. This allows drawing multiple texts per `Canvas` without having to spawn one `Entity` per text.
 
 ## Status
 
@@ -28,4 +28,4 @@ Text rendering leverages Bevy's own `TextPipeline<T>`, and therefore shares the 
 
 This is a continuation of the [🎨 Bevy Piet](../bevy_piet/) experiment.
 
-Currently a base stub is implemented to draw axis-aligned rectangles, lines, and texts.
+Currently a base stub is implemented to draw axis-aligned rectangles (with or without texturing) and texts.

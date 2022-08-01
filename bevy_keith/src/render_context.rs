@@ -275,6 +275,7 @@ impl<'c> RenderContext<'c> {
             color: brush.color(),
             flip_x: false,
             flip_y: false,
+            image: None,
         });
     }
 
@@ -287,6 +288,16 @@ impl<'c> RenderContext<'c> {
             id: text_id,
             rect: Rect { min: pos, max: pos },
             color: Color::RED, // FIXME - text.sections[0].style.color, // TODO - multi-section?
+        });
+    }
+
+    pub fn draw_image(&mut self, shape: Rect, image: Handle<Image>) {
+        self.canvas.draw(RectPrimitive {
+            rect: shape,
+            color: Color::WHITE,
+            flip_x: false,
+            flip_y: false,
+            image: Some(image.id),
         });
     }
 }
