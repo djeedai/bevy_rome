@@ -209,10 +209,16 @@ impl PrimImpl for TextPrimitive {
             let y = self.rect.min.y + glyphs[i].offset.y;
             let w = glyphs[i].size.x;
             let h = glyphs[i].size.y;
+            // Glyph position is center of rect, we need bottom-left corner
+            let x = x - w / 2.;
+            let y = y - h / 2.;
             let uv_x = glyphs[i].uv_rect.min.x / 512.0;
             let uv_y = glyphs[i].uv_rect.min.y / 512.0;
             let uv_w = glyphs[i].uv_rect.max.x / 512.0 - uv_x;
             let uv_h = glyphs[i].uv_rect.max.y / 512.0 - uv_y;
+            // Glyph UV is flipped vertically
+            let uv_y = uv_y + uv_h;
+            let uv_h = -uv_h;
             prim[ip + 0].write(x * inv_scale_factor);
             prim[ip + 1].write(y * inv_scale_factor);
             prim[ip + 2].write(w * inv_scale_factor);
