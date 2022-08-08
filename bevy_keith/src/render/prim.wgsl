@@ -49,6 +49,19 @@ struct Rect {
 #endif
 };
 
+struct Line {
+    /// Line origin.
+    origin: vec2<f32>,
+    /// Line direction, of length the segment length.
+    dir: vec2<f32>,
+    /// Normal vector (normalized).
+    normal: vec2<f32>,
+    /// Line color.
+    color: vec4<f32>,
+    /// Line thickness, in the direction of the normal.
+    thickness: f32,
+};
+
 fn unpack_index(vertex_index: u32) -> Primitive {
     var p: Primitive;
     p.offset = (vertex_index & 0x00FFFFFFu);
@@ -84,6 +97,25 @@ fn load_rect(offset: u32) -> Rect {
     return rect;
 }
 
+fn load_line(offset: u32) -> Line {
+    let p0x = primitives.elems[offset];
+    let p0y = primitives.elems[offset + 1u];
+    let p1x = primitives.elems[offset + 2u];
+    let p1y = primitives.elems[offset + 3u];
+    let c = primitives.elems[offset + 4u];
+    let t = primitives.elems[offset + 5u];
+    var lin: Line;
+    var p0 = vec2<f32>(p0x, p0y);
+    var p1 = vec2<f32>(p1x, p1y);
+    lin.origin = p0;
+    lin.dir = p1 - p0;
+    lin.normal = normalize(vec2<f32>(-lin.dir.y, lin.dir.x));
+    let uc: u32 = bitcast<u32>(c);
+    lin.color = unpack4x8unorm(uc);
+    lin.thickness = t;
+    return lin;
+}
+
 @vertex
 fn vertex(
     @builtin(vertex_index) vertex_index: u32,
@@ -91,14 +123,17 @@ fn vertex(
     var prim = unpack_index(vertex_index);
     var out: VertexOutput;
     var vertex_position: vec2<f32>;
-    if (prim.kind <= 1u) // RECT or GLYPH
-    {
+    if (prim.kind <= 1u) { // RECT or GLYPH
         var rect = load_rect(prim.offset);
         vertex_position = rect.pos + rect.size * prim.corner;
         out.color = rect.color;
 #ifdef TEXTURED
         out.uv = rect.uv_pos + rect.uv_size * prim.corner;
 #endif
+    } else if (prim.kind == 2u) { // LINE
+        var lin = load_line(prim.offset);
+        vertex_position = lin.origin + lin.dir * prim.corner.x + lin.normal * ((prim.corner.y - 0.5) * lin.thickness);
+        out.color = lin.color;
     }
     out.position = view.view_proj * vec4<f32>(vertex_position, 0.0, 1.0);
     return out;

@@ -174,7 +174,7 @@ impl PrimImpl for LinePrimitive {
         prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
         prim[5].write(self.thickness);
         assert_eq!(6, idx.len());
-        for (i, corner) in [0, 2, 3, 0, 1, 2].iter().enumerate() {
+        for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
             let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Line, 0);
             idx[i].write(index.raw());
         }

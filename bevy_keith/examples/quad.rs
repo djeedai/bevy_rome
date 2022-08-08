@@ -121,7 +121,8 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>) {
     };
     ctx.draw_image(rect, my_res.image.clone());
 
-    // let brush = ctx.solid_brush(Color::GREEN);
-    // let line = Line::new(Point::new(-10., -30.), Point::new(20., 100.));
-    // ctx.stroke(line, &brush, 13.);
+    let brush = ctx.solid_brush(Color::GREEN);
+    for i in 0..=10 {
+        ctx.line(Vec2::new(-200.5, 0.5 + i as f32 * 15.), Vec2::new(0.5, 0.5 + i as f32 * 40.), &brush, 1. + i as f32);
+    }
 }

@@ -279,6 +279,15 @@ impl<'c> RenderContext<'c> {
         });
     }
 
+    pub fn line(&mut self, p0: Vec2, p1: Vec2, brush: &Brush, thickness: f32) {
+        self.canvas.draw(LinePrimitive {
+            start: p0,
+            end: p1,
+            color: brush.color(),
+            thickness,
+        });
+    }
+
     pub fn new_layout(&mut self, text: impl TextStorage) -> TextLayoutBuilder {
         TextLayoutBuilder::new(self.canvas, text)
     }
