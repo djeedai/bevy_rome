@@ -5,7 +5,7 @@ use bevy::{
     render::settings::{PowerPreference, WgpuSettings},
     sprite::Rect,
 };
-//use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_inspector_egui::WorldInspectorPlugin;
 
 use bevy_keith::*;
 
@@ -28,7 +28,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_system(bevy::window::close_on_esc)
         .add_plugin(KeithPlugin)
-        //.add_plugin(WorldInspectorPlugin::new())
+        .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .add_system(run)
         .run();
