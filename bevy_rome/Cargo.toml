@@ -1,10 +1,19 @@
 [package]
 name = "bevy_rome"
 version = "0.1.0"
+authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 resolver = "2"
+description = "Message passing and diff library for the Bevy game engine"
+repository = "https://github.com/djeedai/bevy_rome"
+homepage = "https://github.com/djeedai/bevy_rome/tree/main/bevy_rome"
+documentation = "https://docs.rs/bevy_rome"
+keywords = ["bevy", "messaging", "diff", "reflection"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+exclude = ["examples/*.gif", ".github", "release.md"]
 
 [dependencies]
-bevy = { version = "0.7", default-features = false, features = ["filesystem_watcher"] }
+bevy = { version = "0.8", default-features = false, features = ["filesystem_watcher"] }
 serde = { version = "1.0", features = ["derive"] }
 ron = "0.7"
