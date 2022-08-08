@@ -106,7 +106,9 @@ Like for other Authors, enabling fast iteration for Developers is critical. To t
 
 #### Data model
 
-TODO: describe the data types available and the custom in-memory data model format, and the use of diffs to carry modifications to objects. the data format uses properties specified by string paths (`GetPath`). also describe how new types are dynamically added and removed (hot reloading).
+_Prototype:_ [📦 `bevy_rome`](../bevy_rome/)
+
+The data model is described at length in [the "Editor data model" RFC](https://github.com/bevyengine/rfcs/pull/62).
 
 #### Undo and redo
 
@@ -150,7 +152,9 @@ TODO: talk about the type registry, type IDs, the difficulty of unicity across p
 
 ### Reflection-based diffs
 
-TODO: talk about the necessary changes and additions to `bevy_reflect` to enable all `Reflect`-ed types to be diffable and therefore editable by the Editor. explain the performance challenges of efficient diff create (d = b - a) and apply (a + d = b).
+_Prototypes:_ [📦 `bevy_rome`](../bevy_rome/), Cart's [old Diff PR](https://github.com/bevyengine/bevy/pull/944) for `bevy_reflect`
+
+TODO: talk about the necessary changes and additions to `bevy_reflect` to enable all `Reflect`-ed types to be diffable and therefore editable by the Editor. explain the performance challenges of efficient diff create (d = b - a) and apply (a + d = b). Talk about _diffs_ (two-way) vs. _patches_ (one-way).
 
 TODO: see also [ezEngine](https://github.com/ezEngine/ezEngine/blob/3c34b8334d0e88a5bd127c264c7b34dd60025bf3/Code/Engine/Foundation/Serialization/AbstractObjectGraph.h#L75) and its graph data model and diff handling.
 
