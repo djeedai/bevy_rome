@@ -477,6 +477,10 @@ impl Canvas {
         &self.text_layouts[..]
     }
 
+    pub(crate) fn text_layouts_mut(&mut self) -> &mut [TextLayout] {
+        &mut self.text_layouts[..]
+    }
+
     pub(crate) fn text_changed(&self) -> bool {
         self.text_changed
     }

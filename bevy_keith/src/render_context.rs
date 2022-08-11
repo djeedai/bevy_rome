@@ -86,6 +86,8 @@ pub struct TextLayout {
     pub(crate) sections: Vec<TextSection>,
     pub(crate) alignment: TextAlignment,
     pub(crate) bounds: Vec2,
+    /// Calculated text size based on glyphs alone, updated by [`process_glyphs()`].
+    pub(crate) calculated_size: Vec2,
 }
 
 // impl piet::TextLayout for TextLayout {
@@ -125,6 +127,8 @@ pub struct TextLayoutBuilder<'c> {
     canvas: &'c mut Canvas,
     style: TextStyle,
     value: String,
+    bounds: Vec2,
+    alignment: TextAlignment,
 }
 
 impl<'c> TextLayoutBuilder<'c> {
@@ -133,6 +137,11 @@ impl<'c> TextLayoutBuilder<'c> {
             canvas,
             style: TextStyle::default(),
             value: storage.as_str().to_owned(),
+            bounds: Vec2::new(f32::MAX, f32::MAX),
+            alignment: TextAlignment {
+                vertical: VerticalAlign::Bottom,
+                horizontal: HorizontalAlign::Left,
+            },
         }
     }
 
@@ -151,6 +160,16 @@ impl<'c> TextLayoutBuilder<'c> {
         self
     }
 
+    pub fn bounds(mut self, bounds: Vec2) -> Self {
+        self.bounds = bounds;
+        self
+    }
+
+    pub fn alignment(mut self, alignment: TextAlignment) -> Self {
+        self.alignment = alignment;
+        self
+    }
+
     pub fn build(mut self) -> u32 {
         let layout = TextLayout {
             id: 0, // assigned in finish_layout()
@@ -158,11 +177,9 @@ impl<'c> TextLayoutBuilder<'c> {
                 style: self.style,
                 value: self.value,
             }],
-            alignment: TextAlignment {
-                vertical: VerticalAlign::Bottom,
-                horizontal: HorizontalAlign::Left,
-            },
-            bounds: Vec2::new(f32::MAX, f32::MAX), // TODO - bounds
+            alignment: self.alignment,
+            bounds: self.bounds,
+            calculated_size: Vec2::ZERO, // updated in process_glyphs()
         };
         self.canvas.finish_layout(layout)
     }

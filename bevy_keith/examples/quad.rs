@@ -85,6 +85,30 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // });
 }
 
+fn draw_button(ctx: &mut RenderContext, rect: Rect, text: &str, font: Handle<Font>) {
+    // Background
+    let brush = ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7));
+    ctx.fill(rect, &brush);
+
+    // Outline
+    let brush = ctx.solid_brush(Color::rgb(0.5, 0.5, 0.5));
+    ctx.stroke(rect, &brush, 1.);
+
+    // Text
+    let text = ctx
+        .new_layout(text.to_owned())
+        .color(Color::rgb(0.2, 0.2, 0.2))
+        .font(font)
+        .font_size(16.)
+        .bounds(rect.size())
+        .alignment(TextAlignment {
+            vertical: VerticalAlign::Center,
+            horizontal: HorizontalAlign::Center,
+        })
+        .build();
+    ctx.draw_text(text, (rect.min + rect.max) / 2.);
+}
+
 fn run(mut query: Query<(&mut Canvas, &MyRes)>) {
     let (mut canvas, my_res) = query.single_mut();
     canvas.clear();
@@ -107,13 +131,13 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>) {
     };
     ctx.fill(rect, &brush);
 
-    let text = ctx
-        .new_layout("Hello World!")
-        .color(Color::ORANGE_RED)
-        .font(my_res.font.clone())
-        .font_size(24.)
-        .build();
-    ctx.draw_text(text, Vec2::ZERO);
+    // let text = ctx
+    //     .new_layout("Hello World!")
+    //     .color(Color::ORANGE_RED)
+    //     .font(my_res.font.clone())
+    //     .font_size(16.)
+    //     .build();
+    // ctx.draw_text(text, Vec2::new(100., -20.0));
 
     let rect = Rect {
         min: Vec2::new(100., 150.),
@@ -125,4 +149,16 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>) {
     for i in 0..=10 {
         ctx.line(Vec2::new(-200.5, 0.5 + i as f32 * 15.), Vec2::new(0.5, 0.5 + i as f32 * 40.), &brush, 1. + i as f32);
     }
+
+    // Buttons
+    let rect = Rect {
+        min: Vec2::new(-200., -100.),
+        max: Vec2::new(-80., -70.),
+    };
+    draw_button(&mut ctx, rect, "Submit", my_res.font.clone());
+    // let rect = Rect {
+    //     min: Vec2::new(-200., -140.),
+    //     max: Vec2::new(-80., -110.),
+    // };
+    // draw_button(&mut ctx, rect, "Cancel", my_res.font.clone());
 }

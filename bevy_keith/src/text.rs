@@ -71,6 +71,7 @@ pub fn process_glyphs(
 
     // TODO - handle multi-window
     let scale_factor = windows.scale_factor(WindowId::primary());
+    let inv_scale_factor = 1. / scale_factor;
 
     // Loop on all existing canvases
     for (entity, mut canvas) in canvas_query.iter_mut() {
@@ -83,7 +84,7 @@ pub fn process_glyphs(
         }
 
         // Loop on all texts for the current canvas
-        for text in canvas.text_layouts() {
+        for mut text in canvas.text_layouts_mut() {
             let text_id = CanvasTextId::from_raw(entity, text.id);
 
             // Update the text glyphs, storing them into the font atlas(es) for later rendering
@@ -107,13 +108,13 @@ pub fn process_glyphs(
                     panic!("Fatal error when processing text: {}.", e);
                 }
                 Ok(()) => {
-                    let _text_layout_info = text_pipeline.get_glyphs(&text_id).expect(
+                    let text_layout_info = text_pipeline.get_glyphs(&text_id).expect(
                         "Failed to get glyphs from the pipeline that have just been computed",
                     );
-                    // calculated_size.size = Vec2::new(
-                    //     scale_value(text_layout_info.size.x, 1. / scale_factor),
-                    //     scale_value(text_layout_info.size.y, 1. / scale_factor),
-                    // );
+                    text.calculated_size = Vec2::new(
+                        scale_value(text_layout_info.size.x, inv_scale_factor),
+                        scale_value(text_layout_info.size.y, inv_scale_factor),
+                    );
                 }
             }
         }
