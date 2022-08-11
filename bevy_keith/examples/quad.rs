@@ -155,7 +155,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>) {
         min: Vec2::new(-200., -100.),
         max: Vec2::new(-80., -70.),
     };
-    draw_button(&mut ctx, rect, "Submit", my_res.font.clone());
+    draw_button(&mut ctx, rect, "This is a very long text that will not fit in the button", my_res.font.clone());
     // let rect = Rect {
     //     min: Vec2::new(-200., -140.),
     //     max: Vec2::new(-80., -110.),

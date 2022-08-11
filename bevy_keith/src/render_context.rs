@@ -82,9 +82,13 @@ impl TextStorage for &'static str {
 
 #[derive(Debug, Default, Clone)]
 pub struct TextLayout {
+    /// Unique ID of the text into its owner [`Canvas`].
     pub(crate) id: u32,
+    /// Sections of text.
     pub(crate) sections: Vec<TextSection>,
+    /// Text alignment relative to its origin (render position).
     pub(crate) alignment: TextAlignment,
+    /// Text bounds, used for glyph clipping.
     pub(crate) bounds: Vec2,
     /// Calculated text size based on glyphs alone, updated by [`process_glyphs()`].
     pub(crate) calculated_size: Vec2,
@@ -145,31 +149,46 @@ impl<'c> TextLayoutBuilder<'c> {
         }
     }
 
+    /// Select the font to render the text with.
     pub fn font(mut self, font: Handle<Font>) -> Self {
         self.style.font = font;
         self
     }
 
+    /// Set the font size.
     pub fn font_size(mut self, font_size: f32) -> Self {
         self.style.font_size = font_size;
         self
     }
 
+    /// Set the text color.
+    /// 
+    /// FIXME - this vs. RenderContext::draw_text()'s color
     pub fn color(mut self, color: Color) -> Self {
         self.style.color = color;
         self
     }
 
+    /// Set some bounds around the text.
+    /// 
+    /// The text will be formatted with line wrapping and clipped to fit in those bounds.
+    /// 
+    /// FIXME - Currently no clipping for partially visible glyphs, only completely outside
+    /// ones are clipped.
     pub fn bounds(mut self, bounds: Vec2) -> Self {
         self.bounds = bounds;
         self
     }
 
+    /// Set the text alignment relative to its render position.
     pub fn alignment(mut self, alignment: TextAlignment) -> Self {
         self.alignment = alignment;
         self
     }
 
+    /// Finalize the layout building and return the newly allocated text layout ID.
+    /// 
+    /// FIXME - Return CanvasTextId somehow, to ensure texts are not used cross-Canvas.
     pub fn build(mut self) -> u32 {
         let layout = TextLayout {
             id: 0, // assigned in finish_layout()
