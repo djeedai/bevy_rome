@@ -279,6 +279,45 @@ impl<'c> RenderContext<'c> {
         });
     }
 
+    /// Stroke a shape with a given brush.
+    pub fn stroke(&mut self, shape: Rect, brush: &Brush, thickness: f32) {
+        let eps = thickness / 2.;
+
+        // Top (including corners)
+        let mut prim = RectPrimitive {
+            rect: Rect {
+                min: Vec2::new(shape.min.x - eps, shape.max.y - eps),
+                max: Vec2::new(shape.max.x + eps, shape.max.y + eps),
+            },
+            color: brush.color(),
+            flip_x: false,
+            flip_y: false,
+            image: None,
+        };
+        self.canvas.draw(prim);
+
+        // Bottom (including corners)
+        prim.rect = Rect {
+            min: Vec2::new(shape.min.x - eps, shape.min.y - eps),
+            max: Vec2::new(shape.max.x + eps, shape.min.y + eps),
+        };
+        self.canvas.draw(prim);
+
+        // Left (excluding corners)
+        prim.rect = Rect {
+            min: Vec2::new(shape.min.x - eps, shape.min.y + eps),
+            max: Vec2::new(shape.min.x + eps, shape.max.y - eps),
+        };
+        self.canvas.draw(prim);
+
+        // Right (excluding corners)
+        prim.rect = Rect {
+            min: Vec2::new(shape.max.x - eps, shape.min.y + eps),
+            max: Vec2::new(shape.max.x + eps, shape.max.y - eps),
+        };
+        self.canvas.draw(prim);
+    }
+
     pub fn line(&mut self, p0: Vec2, p1: Vec2, brush: &Brush, thickness: f32) {
         self.canvas.draw(LinePrimitive {
             start: p0,

@@ -72,3 +72,13 @@ fn run(mut query: Query<&mut Canvas>) {
     }
 }
 ```
+
+## Features
+
+- [ ] Primitives
+  - [x] Text
+  - [x] Axis-aligned rectangle
+    - [x] Fill
+    - [x] Stroke
+  - [x] Single line
+  - [ ] Polyline
