@@ -5,8 +5,7 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-# Bevy 0.7
-bevy = { version = "0.7", default-features = false, features = ["render"] }
+bevy = { version = "0.8", default-features = false, features = ["render"] }
 bytemuck = { version = "1.7", features = ["derive"] }
 bitflags = "1.2"
 copyless = "0.1.5"
@@ -16,7 +15,7 @@ kurbo = "0.8"
 piet = "0.5"
 
 [dev-dependencies]
-bevy-inspector-egui = "0.11"
+bevy-inspector-egui = "0.12"
 
 [[example]]
 name = "quad"
