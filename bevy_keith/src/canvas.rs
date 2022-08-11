@@ -314,8 +314,8 @@ impl PrimImpl for TextPrimitive {
         let mut ii = 0;
         let inv_scale_factor = 1. / scale_factor;
         for i in 0..glyph_count {
-            let x = self.rect.min.x + glyphs[i].offset.x;
-            let y = self.rect.min.y + glyphs[i].offset.y;
+            let x = glyphs[i].offset.x;
+            let y = glyphs[i].offset.y;
             let w = glyphs[i].size.x;
             let h = glyphs[i].size.y;
             // Glyph position is center of rect, we need bottom-left corner
@@ -328,8 +328,8 @@ impl PrimImpl for TextPrimitive {
             // Glyph UV is flipped vertically
             let uv_y = uv_y + uv_h;
             let uv_h = -uv_h;
-            prim[ip + 0].write(x * inv_scale_factor);
-            prim[ip + 1].write(y * inv_scale_factor);
+            prim[ip + 0].write(self.rect.min.x + x * inv_scale_factor);
+            prim[ip + 1].write(self.rect.min.y + y * inv_scale_factor);
             prim[ip + 2].write(w * inv_scale_factor);
             prim[ip + 3].write(h * inv_scale_factor);
             // FIXME - self.color vs. glyph.color ?!!!
