@@ -1,7 +1,7 @@
 use bevy::{
     asset::{AssetEvent, Handle, HandleId},
-    core::{FloatOrd, Pod, Zeroable},
-    core_pipeline::Transparent2d,
+    core::{Pod, Zeroable},
+    core_pipeline::core_2d::Transparent2d,
     ecs::{
         component::Component,
         entity::Entity,
@@ -11,7 +11,7 @@ use bevy::{
         },
         world::{FromWorld, World},
     },
-    math::{const_vec2, Mat2},
+    math::Mat2,
     prelude::*,
     reflect::Uuid,
     render::{
@@ -21,22 +21,22 @@ use bevy::{
             RenderCommandResult, RenderPhase, SetItemPipeline, TrackedRenderPass,
         },
         render_resource::{
-            std140::AsStd140, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
+            BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
             BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType,
             BlendState, BufferBindingType, BufferSize, BufferUsages, BufferVec, ColorTargetState,
             ColorWrites, FragmentState, FrontFace, MultisampleState, PipelineCache, PolygonMode,
             PrimitiveState, PrimitiveTopology, RenderPipelineDescriptor, SamplerBindingType,
-            ShaderStages, SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat,
-            TextureSampleType, TextureViewDimension, VertexBufferLayout, VertexFormat, VertexState,
-            VertexStepMode,
+            ShaderStages, ShaderType, SpecializedRenderPipeline, SpecializedRenderPipelines,
+            TextureFormat, TextureSampleType, TextureViewDimension, VertexBufferLayout,
+            VertexFormat, VertexState, VertexStepMode,
         },
         renderer::{RenderDevice, RenderQueue},
         texture::{BevyDefault, Image},
         view::{Msaa, ViewUniform, ViewUniformOffset, ViewUniforms},
-        RenderWorld,
+        Extract,
     },
     sprite::Rect as SRect,
-    utils::HashMap,
+    utils::{FloatOrd, HashMap},
 };
 use copyless::VecHelper;
 
@@ -120,11 +120,7 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawQuadBatch {
     }
 }
 
-pub type DrawLine = (
-    SetItemPipeline,
-    SetQuadViewBindGroup<0>,
-    DrawLineBatch,
-);
+pub type DrawLine = (SetItemPipeline, SetQuadViewBindGroup<0>, DrawLineBatch);
 
 pub struct DrawLineBatch;
 
@@ -134,10 +130,9 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawLineBatch {
     fn render<'w>(
         _view: Entity,
         item: &P,
-        (quad_meta, query_batch): SystemParamItem<'w, '_, Self::Param>,
+        (quad_meta, _query_batch): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let line_batch = query_batch.get(item.entity()).unwrap();
         let quad_meta = quad_meta.into_inner();
         pass.set_vertex_buffer(0, quad_meta.vertices.buffer().unwrap().slice(..));
         pass.draw(item.batch_range().as_ref().unwrap().clone(), 0..1);
@@ -207,7 +202,7 @@ impl FromWorld for QuadPipeline {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: true,
-                    min_binding_size: BufferSize::new(ViewUniform::std140_size_static() as u64),
+                    min_binding_size: Some(ViewUniform::min_size()),
                 },
                 count: None,
             }],
@@ -301,11 +296,11 @@ impl SpecializedRenderPipeline for QuadPipeline {
                 shader: QUAD_SHADER_HANDLE.typed::<Shader>(),
                 shader_defs,
                 entry_point: "fragment".into(),
-                targets: vec![ColorTargetState {
+                targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
-                }],
+                })],
             }),
             layout: Some(layouts),
             primitive: PrimitiveState {
@@ -331,17 +326,17 @@ impl SpecializedRenderPipeline for QuadPipeline {
 const QUAD_INDICES: [usize; 6] = [0, 2, 3, 0, 1, 2];
 
 const QUAD_VERTEX_POSITIONS: [Vec2; 4] = [
-    const_vec2!([-0.5, -0.5]),
-    const_vec2!([0.5, -0.5]),
-    const_vec2!([0.5, 0.5]),
-    const_vec2!([-0.5, 0.5]),
+    Vec2::from_array([-0.5, -0.5]),
+    Vec2::from_array([0.5, -0.5]),
+    Vec2::from_array([0.5, 0.5]),
+    Vec2::from_array([-0.5, 0.5]),
 ];
 
 const QUAD_UVS: [Vec2; 4] = [
-    const_vec2!([0., 1.]),
-    const_vec2!([1., 1.]),
-    const_vec2!([1., 0.]),
-    const_vec2!([0., 0.]),
+    Vec2::from_array([0., 1.]),
+    Vec2::from_array([1., 1.]),
+    Vec2::from_array([1., 0.]),
+    Vec2::from_array([0., 0.]),
 ];
 
 #[derive(Component, Clone, Copy)]
@@ -384,11 +379,11 @@ pub struct QuadAssetEvents {
 }
 
 pub(crate) fn extract_quad_events(
-    mut render_world: ResMut<RenderWorld>,
-    mut image_events: EventReader<AssetEvent<Image>>,
+    mut events: ResMut<QuadAssetEvents>,
+    mut image_events: Extract<EventReader<AssetEvent<Image>>>,
 ) {
     //trace!("extract_quad_events");
-    let mut events = render_world.resource_mut::<QuadAssetEvents>();
+
     let QuadAssetEvents { ref mut images } = *events;
     images.clear();
 
@@ -409,7 +404,7 @@ pub(crate) fn extract_quad_events(
 }
 
 pub(crate) fn extract_quads(
-    mut render_world: ResMut<RenderWorld>,
+    mut extracted_quads: ResMut<ExtractedCanvases>,
     _texture_atlases: Res<Assets<TextureAtlas>>,
     canvas_query: Query<(Entity, Option<&Visibility>, &PietCanvas, &GlobalTransform)>,
     _atlas_query: Query<(
@@ -420,8 +415,9 @@ pub(crate) fn extract_quads(
     )>,
 ) {
     trace!("extract_quads");
-    let mut extracted_quads = render_world.resource_mut::<ExtractedCanvases>();
+
     extracted_quads.canvases.clear();
+
     for (entity, opt_visibility, canvas, transform) in canvas_query.iter() {
         if let Some(visibility) = opt_visibility {
             if !visibility.is_visible {
@@ -594,8 +590,7 @@ pub fn queue_quads(
                                 gpu_images.get(&Handle::weak(new_batch.image_handle_id))
                             {
                                 current_batch = new_batch;
-                                current_image_size =
-                                    Vec2::new(gpu_image.size.width, gpu_image.size.height);
+                                current_image_size = gpu_image.size;
                                 current_batch_entity = commands.spawn_bundle((current_batch,)).id();
 
                                 image_bind_groups
@@ -664,7 +659,7 @@ pub fn queue_quads(
                     });
 
                     // These items will be sorted by depth with other phase items
-                    let sort_key = FloatOrd(extracted_canvas.transform.translation.z);
+                    let sort_key = FloatOrd(extracted_canvas.transform.translation().z);
 
                     // Store the vertex data and add the item to the render phase
                     if current_batch.textured {
@@ -754,7 +749,7 @@ pub fn queue_quads(
                 if item_end > item_start {
                     // These items will be sorted by depth with other phase items
                     // TODO - unused? Painter's algorithm is already sorted, but maybe need to sort w.r.t. other 2D elements?
-                    let sort_key = FloatOrd(extracted_canvas.transform.translation.z);
+                    let sort_key = FloatOrd(extracted_canvas.transform.translation().z);
 
                     transparent_phase.add(Transparent2d {
                         draw_function: draw_lines_function,

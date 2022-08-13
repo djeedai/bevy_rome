@@ -5,7 +5,7 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-bevy = { version = "0.8", default-features = false, features = ["render"] }
+bevy = { version = "0.8", default-features = false, features = ["render", "bevy_asset"] }
 bytemuck = { version = "1.7", features = ["derive"] }
 bitflags = "1.2"
 copyless = "0.1.5"

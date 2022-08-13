@@ -18,7 +18,7 @@ pub use render_context::BevyRenderContext;
 
 use bevy::app::prelude::*;
 use bevy::asset::{AddAsset, Assets, HandleUntyped};
-use bevy::core_pipeline::Transparent2d;
+use bevy::core_pipeline::core_2d::Transparent2d;
 use bevy::ecs::schedule::SystemLabel;
 use bevy::reflect::TypeUuid;
 use bevy::render::{
