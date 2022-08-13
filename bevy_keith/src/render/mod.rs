@@ -1,4 +1,8 @@
-use std::{ops::Range, primitive};
+use std::{
+    fmt::{write, Write},
+    ops::Range,
+    primitive,
+};
 
 use bevy::{
     asset::{Asset, AssetEvent, Handle, HandleId},
@@ -39,7 +43,7 @@ use bevy::{
         Extract, MainWorld,
     },
     sprite::Rect as SRect,
-    utils::{FloatOrd, HashMap},
+    utils::{tracing::enabled, FloatOrd, HashMap},
     window::WindowId,
 };
 use copyless::VecHelper;
@@ -558,7 +562,7 @@ pub(crate) struct ExtractedGlyph {
     /// Offset of the glyph from the text origin.
     pub offset: Vec2,
     pub size: Vec2,
-    /// Glyph color, as RGBA linear (0xAABBGGRR in little endian). Extracted from the text 
+    /// Glyph color, as RGBA linear (0xAABBGGRR in little endian). Extracted from the text
     /// section's style ([`TextStyle::color`]).
     pub color: u32,
     /// Handle of the atlas texture where the glyph is stored.
@@ -783,6 +787,28 @@ impl<'a> Iterator for SubPrimIter<'a> {
     }
 }
 
+/// Format a list of values as 16 values per row, for more compact `trace!()`.
+///
+/// ```ignore
+/// trace_list!("x = ", my_iter, " {}");
+/// ```
+macro_rules! trace_list {
+    ($header:expr, $iter:expr, $fmt:expr) => {
+        if enabled!(bevy::log::Level::TRACE) {
+            let mut s = String::with_capacity(256);
+            for u in $iter.chunks(16) {
+                s.clear();
+                s += $header;
+                u.iter().fold(&mut s, |s, u| {
+                    write!(s, $fmt, u).unwrap();
+                    s
+                });
+                trace!("{}", s);
+            }
+        }
+    };
+}
+
 pub(crate) fn prepare_primitives(
     mut commands: Commands,
     mut extracted_canvases: ResMut<ExtractedCanvases>,
@@ -865,13 +891,17 @@ pub(crate) fn prepare_primitives(
                 unsafe { indices.set_len(new_index_count) };
 
                 trace!("New primitive elements:");
-                for f in &primitives[new_row_count - row_count..new_row_count] {
-                    trace!("+ f32[] = {}", f);
-                }
+                trace_list!(
+                    "+ f32[] =",
+                    primitives[new_row_count - row_count..new_row_count],
+                    " {}"
+                );
                 trace!("New indices:");
-                for u in &indices[new_index_count - index_count..new_index_count] {
-                    trace!("+ u32[] = {:x}", u);
-                }
+                trace_list!(
+                    "+ u32[] =",
+                    indices[new_index_count - index_count..new_index_count],
+                    " {:x}"
+                );
             }
 
             // Loop on sub-primitives; Text primitives expand to one Rect primitive
