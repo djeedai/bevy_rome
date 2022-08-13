@@ -276,8 +276,8 @@ pub struct TextPrimitive {
 }
 
 impl TextPrimitive {
-    const ROW_PER_GLYPH: u32 = 9;
-    const INDEX_PER_GLYPH: u32 = 6;
+    pub const ROW_PER_GLYPH: u32 = 9;
+    pub const INDEX_PER_GLYPH: u32 = 6;
 }
 
 impl PrimImpl for TextPrimitive {

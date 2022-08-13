@@ -49,7 +49,7 @@ use bevy::{
 use copyless::VecHelper;
 
 use crate::{
-    canvas::{Canvas, PrimImpl, Primitive, PrimitiveInfo},
+    canvas::{Canvas, PrimImpl, Primitive, PrimitiveInfo, TextPrimitive},
     text::{CanvasTextId, KeithTextPipeline},
     PRIMITIVE_SHADER_HANDLE,
 };
@@ -757,10 +757,10 @@ impl<'a> Iterator for SubPrimIter<'a> {
                         return None; // not ready
                     }
                     let text = &self.texts[text.id as usize];
-                    if self.index < self.texts.len() {
+                    if self.index < text.glyphs.len() {
                         let image_handle_id = text.glyphs[self.index].handle_id;
                         self.index += 1;
-                        Some((image_handle_id, index_count))
+                        Some((image_handle_id, TextPrimitive::INDEX_PER_GLYPH))
                     } else {
                         self.prim = None;
                         None
@@ -856,8 +856,13 @@ pub(crate) fn prepare_primitives(
         // Serialize primitives into a binary float32 array, to work around the fact wgpu doesn't
         // have byte arrays. And f32 being the most common type of data in primitives limits the
         // amount of bitcast in the shader.
+        trace!(
+            "Serialize {} primitives...",
+            extracted_canvas.primitives.len()
+        );
         for prim in &extracted_canvas.primitives {
-            let offset = primitives.len() as u32;
+            let base_index = primitives.len() as u32;
+            trace!("+ Primitive @ base_index={}", base_index);
 
             // Serialize the primitive
             let PrimitiveInfo {
@@ -879,7 +884,7 @@ pub(crate) fn prepare_primitives(
                 prim.write(
                     &extracted_canvas.texts[..],
                     &mut prim_slice[..row_count],
-                    offset,
+                    base_index,
                     &mut idx_slice[..index_count],
                     extracted_canvas.scale_factor,
                 );
@@ -890,13 +895,13 @@ pub(crate) fn prepare_primitives(
                 let new_index_count = indices.len() + index_count;
                 unsafe { indices.set_len(new_index_count) };
 
-                trace!("New primitive elements:");
+                trace!("New primitive elements: (+{})", row_count);
                 trace_list!(
                     "+ f32[] =",
                     primitives[new_row_count - row_count..new_row_count],
                     " {}"
                 );
-                trace!("New indices:");
+                trace!("New indices: (+{})", index_count);
                 trace_list!(
                     "+ u32[] =",
                     indices[new_index_count - index_count..new_index_count],
@@ -907,6 +912,7 @@ pub(crate) fn prepare_primitives(
             // Loop on sub-primitives; Text primitives expand to one Rect primitive
             // per glyph, each of which _can_ have a separate atlas texture so potentially
             // can split the draw into a new batch.
+            trace!("Batch sub-primitives...");
             let batch_iter = SubPrimIter::new(*prim, &extracted_canvas.texts);
             for (image_handle_id, num_indices) in batch_iter {
                 let new_batch = PrimitiveBatch {
@@ -989,6 +995,7 @@ pub(crate) fn prepare_primitives(
 
         // Output the last batch
         // FIXME - merge duplicated code with above
+        trace!("Output last batch...");
         if !current_batch.range.is_empty() {
             // Check if the previous batch image is available on GPU; if so output the batch
             if !current_batch.image_handle_id.is_valid() {

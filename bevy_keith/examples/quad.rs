@@ -23,7 +23,7 @@ fn main() {
         .insert_resource(ClearColor(Color::DARK_GRAY))
         .insert_resource(bevy::log::LogSettings {
             level: bevy::log::Level::WARN,
-            filter: "bevy_keith=trace".to_string(),
+            filter: "quad=trace,bevy_keith=debug".to_string(),
         })
         .add_plugins(DefaultPlugins)
         .add_system(bevy::window::close_on_esc)
@@ -85,9 +85,30 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // });
 }
 
-fn draw_button(ctx: &mut RenderContext, rect: Rect, text: &str, font: Handle<Font>) {
+trait RectEx {
+    fn contains(&self, point: Vec2) -> bool;
+}
+
+impl RectEx for Rect {
+    fn contains(&self, point: Vec2) -> bool {
+        debug!("rect={:?} point={:?}", self, point);
+        point.cmpge(self.min).all() && point.cmple(self.max).all()
+    }
+}
+
+fn draw_button(
+    ctx: &mut RenderContext,
+    rect: Rect,
+    text: &str,
+    font: Handle<Font>,
+    cursor_pos: Vec2,
+) {
     // Background
-    let brush = ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7));
+    let brush = if rect.contains(cursor_pos) {
+        ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7))
+    } else {
+        ctx.solid_brush(Color::rgb(0.6, 0.6, 0.6))
+    };
     ctx.fill(rect, &brush);
 
     // Outline
@@ -109,11 +130,20 @@ fn draw_button(ctx: &mut RenderContext, rect: Rect, text: &str, font: Handle<Fon
     ctx.draw_text(text, (rect.min + rect.max) / 2.);
 }
 
-fn run(mut query: Query<(&mut Canvas, &MyRes)>) {
+fn run(mut query: Query<(&mut Canvas, &MyRes)>, windows: Res<Windows>, cam: Query<&Camera>) {
     let (mut canvas, my_res) = query.single_mut();
     canvas.clear();
 
     let mut ctx = canvas.render_context();
+
+    let cursor_pos = if let Some(window) = windows.get_primary() {
+        window
+            .cursor_position()
+            .map(|v| v - Vec2::new(1280., 720.) / 2.) // FIXME - cheap window-to-canvas hard-coded conversion
+    } else {
+        None
+    }
+    .unwrap_or(Vec2::NAN);
 
     //ctx.clear(None, Color::FUCHSIA);
 
@@ -131,23 +161,28 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>) {
     };
     ctx.fill(rect, &brush);
 
-    // let text = ctx
-    //     .new_layout("Hello World!")
-    //     .color(Color::ORANGE_RED)
-    //     .font(my_res.font.clone())
-    //     .font_size(16.)
-    //     .build();
-    // ctx.draw_text(text, Vec2::new(100., -20.0));
+    let text = ctx
+        .new_layout("Hello World!")
+        .color(Color::ORANGE_RED)
+        .font(my_res.font.clone())
+        .font_size(16.)
+        .build();
+    ctx.draw_text(text, Vec2::new(100., -20.0));
 
     let rect = Rect {
         min: Vec2::new(100., 150.),
-        max: Vec2::new(116., 166.),
+        max: Vec2::new(164., 214.),
     };
     ctx.draw_image(rect, my_res.image.clone());
 
     let brush = ctx.solid_brush(Color::GREEN);
     for i in 0..=10 {
-        ctx.line(Vec2::new(-200.5, 0.5 + i as f32 * 15.), Vec2::new(0.5, 0.5 + i as f32 * 40.), &brush, 1. + i as f32);
+        ctx.line(
+            Vec2::new(-200.5, 0.5 + i as f32 * 15.),
+            Vec2::new(0.5, 0.5 + i as f32 * 40.),
+            &brush,
+            1. + i as f32,
+        );
     }
 
     // Buttons
@@ -155,10 +190,21 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>) {
         min: Vec2::new(-200., -100.),
         max: Vec2::new(-80., -70.),
     };
-    draw_button(&mut ctx, rect, "This is a very long text that will not fit in the button", my_res.font.clone());
-    // let rect = Rect {
-    //     min: Vec2::new(-200., -140.),
-    //     max: Vec2::new(-80., -110.),
-    // };
-    // draw_button(&mut ctx, rect, "Cancel", my_res.font.clone());
+    draw_button(&mut ctx, rect, "Submit", my_res.font.clone(), cursor_pos);
+    let rect = Rect {
+        min: Vec2::new(-200., -140.),
+        max: Vec2::new(-80., -110.),
+    };
+    draw_button(&mut ctx, rect, "Cancel", my_res.font.clone(), cursor_pos);
+    let rect = Rect {
+        min: Vec2::new(-200., -180.),
+        max: Vec2::new(-80., -150.),
+    };
+    draw_button(
+        &mut ctx,
+        rect,
+        "This is a very long text that will not fit in the button",
+        my_res.font.clone(),
+        cursor_pos,
+    );
 }
