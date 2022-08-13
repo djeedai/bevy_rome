@@ -558,7 +558,8 @@ pub(crate) struct ExtractedGlyph {
     /// Offset of the glyph from the text origin.
     pub offset: Vec2,
     pub size: Vec2,
-    /// Glyph color, as RGBA linear (0xAABBGGRR in little endian).
+    /// Glyph color, as RGBA linear (0xAABBGGRR in little endian). Extracted from the text 
+    /// section's style ([`TextStyle::color`]).
     pub color: u32,
     /// Handle of the atlas texture where the glyph is stored.
     pub handle_id: HandleId,

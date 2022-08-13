@@ -270,9 +270,9 @@ impl PrimImpl for RectPrimitive {
 
 #[derive(Debug, Clone, Copy)]
 pub struct TextPrimitive {
+    /// Unique ID of the text inside its owner [`Canvas`].
     pub id: u32,
     pub rect: Rect,
-    pub color: Color,
 }
 
 impl TextPrimitive {
@@ -332,8 +332,6 @@ impl PrimImpl for TextPrimitive {
             prim[ip + 1].write(self.rect.min.y + y * inv_scale_factor);
             prim[ip + 2].write(w * inv_scale_factor);
             prim[ip + 3].write(h * inv_scale_factor);
-            // FIXME - self.color vs. glyph.color ?!!!
-            //prim[ip + 4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
             prim[ip + 4].write(bytemuck::cast(glyphs[i].color));
             prim[ip + 5].write(uv_x);
             prim[ip + 6].write(uv_y);

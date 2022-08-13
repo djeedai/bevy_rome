@@ -371,7 +371,6 @@ impl<'c> RenderContext<'c> {
         self.canvas.draw(TextPrimitive {
             id: text_id,
             rect: Rect { min: pos, max: pos },
-            color: Color::RED, // FIXME - text.sections[0].style.color, // TODO - multi-section?
         });
     }
 
