@@ -1,4 +1,4 @@
-#![allow(dead_code, unused_mut, unused_imports)]
+#![allow(dead_code)]
 
 mod canvas;
 mod render;
@@ -20,9 +20,9 @@ pub use render_context::RenderContext;
 pub use text::{CanvasTextId, KeithTextPipeline};
 
 use bevy::app::prelude::*;
-use bevy::asset::{AddAsset, Assets, HandleUntyped};
+use bevy::asset::{Assets, HandleUntyped};
 use bevy::core_pipeline::core_2d::Transparent2d;
-use bevy::ecs::schedule::{StageLabel, SystemLabel};
+use bevy::ecs::schedule::SystemLabel;
 use bevy::prelude::ParallelSystemDescriptorCoercion;
 use bevy::reflect::TypeUuid;
 use bevy::render::{
@@ -30,8 +30,6 @@ use bevy::render::{
     render_resource::{Shader, SpecializedRenderPipelines},
     RenderApp, RenderStage,
 };
-use bevy::text::TextPipeline;
-//use bevy::window::ModifiesWindows;
 
 #[derive(Default)]
 pub struct KeithPlugin;

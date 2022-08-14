@@ -189,7 +189,7 @@ impl<'c> TextLayoutBuilder<'c> {
     /// Finalize the layout building and return the newly allocated text layout ID.
     /// 
     /// FIXME - Return CanvasTextId somehow, to ensure texts are not used cross-Canvas.
-    pub fn build(mut self) -> u32 {
+    pub fn build(self) -> u32 {
         let layout = TextLayout {
             id: 0, // assigned in finish_layout()
             sections: vec![TextSection {

@@ -3,13 +3,12 @@ use bevy::{
     ecs::{
         entity::Entity,
         event::EventReader,
-        query::Changed,
         system::{Local, Query, Res, ResMut},
     },
     math::Vec2,
     render::texture::Image,
     sprite::TextureAtlas,
-    text::{Font, FontAtlasSet, TextAlignment, TextError, TextPipeline, TextSection},
+    text::{Font, FontAtlasSet, TextError, TextPipeline},
     utils::HashSet,
     window::{WindowId, WindowScaleFactorChanged, Windows},
 };

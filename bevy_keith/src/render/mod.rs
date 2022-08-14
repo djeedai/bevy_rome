@@ -1,12 +1,7 @@
-use std::{
-    fmt::{write, Write},
-    ops::Range,
-    primitive,
-};
+use std::{fmt::Write, ops::Range};
 
 use bevy::{
     asset::{Asset, AssetEvent, Handle, HandleId},
-    core::{Pod, Zeroable},
     core_pipeline::core_2d::Transparent2d,
     ecs::{
         component::Component,
@@ -17,7 +12,6 @@ use bevy::{
         },
         world::{FromWorld, World},
     },
-    math::Mat2,
     prelude::*,
     reflect::Uuid,
     render::{
@@ -30,23 +24,20 @@ use bevy::{
             BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
             BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType,
             BlendState, Buffer, BufferBinding, BufferBindingType, BufferInitDescriptor, BufferSize,
-            BufferUsages, BufferVec, ColorTargetState, ColorWrites, FragmentState, FrontFace,
-            IndexFormat, MultisampleState, PipelineCache, PolygonMode, PrimitiveState,
-            PrimitiveTopology, RenderPipelineDescriptor, SamplerBindingType, ShaderStages,
-            ShaderType, SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat,
-            TextureSampleType, TextureViewDimension, VertexBufferLayout, VertexFormat, VertexState,
-            VertexStepMode,
+            BufferUsages, ColorTargetState, ColorWrites, FragmentState, FrontFace, IndexFormat,
+            MultisampleState, PipelineCache, PolygonMode, PrimitiveState, PrimitiveTopology,
+            RenderPipelineDescriptor, SamplerBindingType, ShaderStages, ShaderType,
+            SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat,
+            TextureSampleType, TextureViewDimension, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         texture::{BevyDefault, Image},
         view::{Msaa, ViewUniform, ViewUniformOffset, ViewUniforms},
-        Extract, MainWorld,
+        Extract,
     },
-    sprite::Rect as SRect,
     utils::{tracing::enabled, FloatOrd, HashMap},
     window::WindowId,
 };
-use copyless::VecHelper;
 
 use crate::{
     canvas::{Canvas, PrimImpl, Primitive, PrimitiveInfo, TextPrimitive},
@@ -205,6 +196,8 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
     }
 }
 
+/// Batch of primitives sharing the same [`Canvas`] and rendering characteristics,
+/// and which can be rendered with a single draw call.
 #[derive(Component, Clone)]
 pub struct PrimitiveBatch {
     /// Handle of the texture for the batch, or [`NIL_HANDLE_ID`] if not textured.
@@ -216,6 +209,20 @@ pub struct PrimitiveBatch {
 }
 
 impl PrimitiveBatch {
+    /// Create a batch with invalid values, that will never merge with anyhing.
+    ///
+    /// This is typically used as an initializing placeholder when doing incremental batching.
+    pub fn invalid() -> Self {
+        PrimitiveBatch {
+            image_handle_id: HandleId::Id(Uuid::nil(), u64::MAX),
+            canvas_entity: Entity::from_bits(u64::MAX),
+            range: 0..0,
+        }
+    }
+
+    /// Try to merge a batch into the current batch.
+    ///
+    /// Return `true` if the batch was merged, or `false` otherwise.
     pub fn try_merge(&mut self, other: &PrimitiveBatch) -> bool {
         if self.image_handle_id == other.image_handle_id
             && self.canvas_entity == other.canvas_entity
@@ -229,17 +236,19 @@ impl PrimitiveBatch {
     }
 }
 
-pub struct CanvasMeta {
-    /// Entity the `Canvas` component is attached to.
+/// Metadata for [`Canvas`] rendering.
+struct CanvasMeta {
+    /// Entity the [`Canvas`] component is attached to.
     canvas_entity: Entity,
     /// Bind group for the primitive buffer used by the canvas.
     primitive_bind_group: BindGroup,
     /// Index buffer for drawing all the primitives of the entire canvas.
     index_buffer: Buffer,
 }
+
 pub struct PrimitiveMeta {
     view_bind_group: Option<BindGroup>,
-    /// Map from canvas entity to per-canvas meta.
+    /// Map from an [`Entity`] with a [`Canvas`] component to the meta for that canvas.
     canvas_meta: HashMap<Entity, CanvasMeta>,
 }
 
@@ -252,14 +261,20 @@ impl Default for PrimitiveMeta {
     }
 }
 
+/// Shader bind groups for all images currently in use by primitives.
 #[derive(Default)]
 pub struct ImageBindGroups {
     values: HashMap<Handle<Image>, BindGroup>,
 }
 
+/// Rendering pipeline for [`Canvas`] primitives.
 pub struct PrimitivePipeline {
+    /// Bind group layout for the uniform buffer containing the [`ViewUniform`] with
+    /// the camera details of the current view being rendered.
     view_layout: BindGroupLayout,
+    /// Bind group layout for the primitive buffer.
     prim_layout: BindGroupLayout,
+    /// Bind group layout for the texture used by textured primitives.
     material_layout: BindGroupLayout,
 }
 
@@ -401,31 +416,17 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
     }
 }
 
-const QUAD_INDICES: [usize; 6] = [0, 2, 3, 0, 1, 2];
-
-const QUAD_VERTEX_POSITIONS: [Vec2; 4] = [
-    Vec2::from_array([-0.5, -0.5]),
-    Vec2::from_array([0.5, -0.5]),
-    Vec2::from_array([0.5, 0.5]),
-    Vec2::from_array([-0.5, 0.5]),
-];
-
-const QUAD_UVS: [Vec2; 4] = [
-    Vec2::from_array([0., 1.]),
-    Vec2::from_array([1., 1.]),
-    Vec2::from_array([1., 0.]),
-    Vec2::from_array([0., 0.]),
-];
-
+/// Rendering data extracted from a single [`Canvas`] component.
 #[derive(Default)]
 pub struct ExtractedCanvas {
+    /// Global transform of the canvas.
     pub transform: GlobalTransform,
+    /// Collection of primitives rendered in this canvas.
     pub primitives: Vec<Primitive>,
     storage: Option<Buffer>,
     storage_capacity: usize,
     index_buffer: Option<Buffer>,
     index_buffer_capacity: usize,
-    pub index_count: u32,
     /// Scale factor of the window where this canvas is rendered.
     pub scale_factor: f32,
     /// Extracted data for all texts in use, in local text ID order.
@@ -472,7 +473,6 @@ impl ExtractedCanvas {
 
         // Index buffer
         let size = indices.len(); // FIXME - cap size to reasonable value
-        self.index_count += size as u32;
         let contents = bytemuck::cast_slice(&indices[..]);
         if size > self.index_buffer_capacity {
             // GPU buffer too small; reallocated...
@@ -594,7 +594,7 @@ pub(crate) fn extract_primitives(
     let scale_factor = windows.scale_factor(WindowId::primary()) as f32;
     let inv_scale_factor = 1. / scale_factor;
 
-    let mut extracted_canvases = &mut extracted_canvases.canvases;
+    let extracted_canvases = &mut extracted_canvases.canvases;
 
     extracted_canvases.clear();
 
@@ -826,13 +826,13 @@ pub(crate) fn prepare_primitives(
         match event {
             AssetEvent::Created { .. } => None,
             AssetEvent::Modified { handle } | AssetEvent::Removed { handle } => {
-                trace!("Remove IBG for handle {:?} due to {:?}", handle, event);
+                debug!("Remove IBG for handle {:?} due to {:?}", handle, event);
                 image_bind_groups.values.remove(handle)
             }
         };
     }
 
-    let mut extracted_canvases = &mut extracted_canvases.canvases;
+    let extracted_canvases = &mut extracted_canvases.canvases;
 
     for (entity, extracted_canvas) in extracted_canvases {
         trace!(
@@ -842,16 +842,8 @@ pub(crate) fn prepare_primitives(
             extracted_canvas.texts.len(),
         );
 
-        extracted_canvas.index_count = 0;
         let mut primitives = vec![];
         let mut indices = vec![];
-
-        // Impossible batching starting values that will be replaced on the first iteration
-        let mut current_batch = PrimitiveBatch {
-            image_handle_id: HandleId::Id(Uuid::nil(), u64::MAX),
-            canvas_entity: *entity,
-            range: 0..0,
-        };
 
         // Serialize primitives into a binary float32 array, to work around the fact wgpu doesn't
         // have byte arrays. And f32 being the most common type of data in primitives limits the
@@ -860,6 +852,7 @@ pub(crate) fn prepare_primitives(
             "Serialize {} primitives...",
             extracted_canvas.primitives.len()
         );
+        let mut current_batch = PrimitiveBatch::invalid();
         for prim in &extracted_canvas.primitives {
             let base_index = primitives.len() as u32;
             trace!("+ Primitive @ base_index={}", base_index);
@@ -953,7 +946,7 @@ pub(crate) fn prepare_primitives(
                         .values
                         .entry(Handle::weak(current_batch.image_handle_id))
                         .or_insert_with(|| {
-                            trace!(
+                            debug!(
                                 "Insert new bind group for handle={:?}",
                                 current_batch.image_handle_id
                             );
@@ -1077,7 +1070,7 @@ pub fn queue_primitives(
     mut pipeline_cache: ResMut<PipelineCache>,
     _gpu_images: Res<RenderAssets<Image>>,
     msaa: Res<Msaa>,
-    mut extracted_canvases: ResMut<ExtractedCanvases>,
+    extracted_canvases: Res<ExtractedCanvases>,
     mut views: Query<&mut RenderPhase<Transparent2d>>,
     batches: Query<(Entity, &PrimitiveBatch)>,
 ) {

@@ -7,7 +7,7 @@ use bevy::{
     math::{Vec2, Vec3},
     prelude::OrthographicProjection,
     reflect::Reflect,
-    render::{camera::CameraProjection, color::Color},
+    render::color::Color,
     sprite::Rect,
     utils::default,
 };
@@ -15,7 +15,6 @@ use bevy::{
 use crate::{
     render::ExtractedText,
     render_context::{RenderContext, TextLayout},
-    text::CanvasTextId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
