@@ -35,12 +35,14 @@ use bevy::{
         view::{Msaa, ViewUniform, ViewUniformOffset, ViewUniforms},
         Extract,
     },
+    sprite::Rect,
     utils::{tracing::enabled, FloatOrd, HashMap},
     window::WindowId,
 };
 
 use crate::{
     canvas::{Canvas, PrimImpl, Primitive, PrimitiveInfo, TextPrimitive},
+    rect_ex::RectEx,
     text::{CanvasTextId, KeithTextPipeline},
     PRIMITIVE_SHADER_HANDLE,
 };
@@ -196,6 +198,68 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+struct PrimitiveRef {
+    /// Index of the primitive inside [`ExtractedCanvas::primitives`].
+    index: usize,
+    /// Index of the sub-primitive of this primitive.
+    sub_index: usize,
+    /// Bounding rectangle of the sub-primitive.
+    bounding_rect: Rect,
+}
+
+/// Group of primitives which can be rendered together.
+struct PrimitiveGroup {
+    /// Handle of the texture for the group, or [`NIL_HANDLE_ID`] if not textured.
+    image_handle_id: HandleId,
+    /// Entity with the owner [`Canvas`] component.
+    canvas_entity: Entity,
+    /// Collection of primitives to batch together.
+    primitives: Vec<PrimitiveRef>,
+}
+
+/// Result of merging a [`PrimitiveRef`] into a [`PrimitiveGroup`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MergeResult {
+    /// Primitive was merged into the group.
+    Merged,
+    /// Primitive was not merged into the group, but is disjoint from all the group members,
+    /// so can be bubbled up the stack without impacting the final drawing.
+    Disjoint,
+    /// Primitive was not merged into the group, and cannot be bubbled up the stack without
+    /// changing the drawing, so requires a new batch.
+    NeedNewBatch,
+}
+
+impl PrimitiveGroup {
+    pub fn is_textured(&self) -> bool {
+        self.image_handle_id.is_valid()
+    }
+
+    pub fn try_merge(
+        &mut self,
+        image_handle_id: HandleId,
+        primitive_ref: PrimitiveRef,
+    ) -> MergeResult {
+        if self.image_handle_id == image_handle_id {
+            // includes the case where both are invalid (non-textured)
+            self.primitives.push(primitive_ref);
+            MergeResult::Merged
+        } else {
+            for prim_ref in &self.primitives {
+                if !prim_ref
+                    .bounding_rect
+                    .intersect(primitive_ref.bounding_rect)
+                    .is_empty()
+                {
+                    return MergeResult::NeedNewBatch;
+                }
+            }
+            MergeResult::Disjoint
+        }
+    }
+}
+
 /// Batch of primitives sharing the same [`Canvas`] and rendering characteristics,
 /// and which can be rendered with a single draw call.
 #[derive(Component, Clone)]
@@ -204,7 +268,7 @@ pub struct PrimitiveBatch {
     image_handle_id: HandleId,
     /// Entity holding the [`Canvas`] component this batch is built from.
     canvas_entity: Entity,
-    /// Index range.
+    /// Range into the index buffer, used to draw this batch.
     range: Range<u32>,
 }
 
@@ -558,7 +622,7 @@ pub(crate) struct ExtractedText {
 }
 
 #[derive(Debug)]
-pub(crate) struct ExtractedGlyph {
+pub struct ExtractedGlyph {
     /// Offset of the glyph from the text origin.
     pub offset: Vec2,
     pub size: Vec2,
@@ -730,20 +794,23 @@ pub(crate) struct SubPrimIter<'a> {
     index: usize,
     /// Text information for iterating over glyphs.
     texts: &'a [ExtractedText],
+    /// Inverse window scale factor for glyph scaling.
+    inv_scale_factor: f32,
 }
 
 impl<'a> SubPrimIter<'a> {
-    pub fn new(prim: Primitive, texts: &'a [ExtractedText]) -> Self {
+    pub fn new(prim: Primitive, texts: &'a [ExtractedText], inv_scale_factor: f32) -> Self {
         Self {
             prim: Some(prim),
             index: 0,
             texts,
+            inv_scale_factor,
         }
     }
 }
 
 impl<'a> Iterator for SubPrimIter<'a> {
-    type Item = (HandleId, u32);
+    type Item = (HandleId, Rect, u32);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(prim) = &self.prim {
@@ -756,11 +823,17 @@ impl<'a> Iterator for SubPrimIter<'a> {
                     if text.id as usize >= self.texts.len() {
                         return None; // not ready
                     }
-                    let text = &self.texts[text.id as usize];
-                    if self.index < text.glyphs.len() {
-                        let image_handle_id = text.glyphs[self.index].handle_id;
+                    let extracted_text = &self.texts[text.id as usize];
+                    if self.index < extracted_text.glyphs.len() {
+                        let glyph = &extracted_text.glyphs[self.index];
+                        let bounding_rect = text.bounding_rect(glyph, self.inv_scale_factor);
+                        let image_handle_id = glyph.handle_id;
                         self.index += 1;
-                        Some((image_handle_id, TextPrimitive::INDEX_PER_GLYPH))
+                        Some((
+                            image_handle_id,
+                            bounding_rect,
+                            TextPrimitive::INDEX_PER_GLYPH,
+                        ))
                     } else {
                         self.prim = None;
                         None
@@ -772,13 +845,14 @@ impl<'a> Iterator for SubPrimIter<'a> {
                     } else {
                         NIL_HANDLE_ID
                     };
+                    let bounding_rect = rect.rect;
                     self.prim = None;
-                    Some((handle_id, index_count))
+                    Some((handle_id, bounding_rect, index_count))
                 }
-                _ => {
+                Primitive::Line(line) => {
+                    let bounding_rect = Rect::from_corners(line.start, line.end); // TODO : include caps
                     self.prim = None;
-                    // Currently all other primitives are non-textured
-                    Some((NIL_HANDLE_ID, index_count))
+                    Some((NIL_HANDLE_ID, bounding_rect, index_count))
                 }
             }
         } else {
@@ -842,6 +916,77 @@ pub(crate) fn prepare_primitives(
             extracted_canvas.texts.len(),
         );
 
+        // Group primitives into batches before serializing them, by allowing adjacent non-mergeable primitives
+        // to be reordered if the operation do not modify the drawing result, which in practice means the bounding
+        // rectangles are disjoint.
+        trace!("Group primitives");
+        let mut groups: Vec<PrimitiveGroup> = vec![];
+        for (prim_index, prim) in extracted_canvas.primitives.iter().enumerate() {
+            // Loop over sub-primitives for the current primitive. This will enumerate the text glyphs individually.
+            let batch_iter = SubPrimIter::new(
+                *prim,
+                &extracted_canvas.texts,
+                1. / extracted_canvas.scale_factor,
+            );
+            trace!("prim_index: {}", prim_index);
+            for (sub_index, (image_handle_id, bounding_rect, _)) in batch_iter.enumerate()
+            {
+                // Reference to the current sub-primitive
+                let primitive_ref = PrimitiveRef {
+                    index: prim_index,
+                    sub_index,
+                    bounding_rect,
+                };
+                trace!("primitive_ref: {:?} | image_handle_id = {:?}", primitive_ref, image_handle_id);
+
+                let mut was_merged = false;
+                if groups.len() > 0 {
+                    let mut group_index = groups.len() - 1;
+                    loop {
+                        trace!("+ try merge with group #{}", group_index);
+                        match groups[group_index].try_merge(image_handle_id, primitive_ref) {
+                            MergeResult::Merged => {
+                                trace!("  MERGED!");
+                                was_merged = true;
+                                break;
+                            }
+                            MergeResult::Disjoint => {
+                                // bubble the sub-primitive up the stack to try another merge
+                                trace!("  FAILED!");
+                                if group_index == 0 {
+                                    break;
+                                }
+                                group_index -= 1;
+                            }
+                            MergeResult::NeedNewBatch => {
+                                trace!("  OVERLAP!");
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if !was_merged {
+                    trace!("!was_merged : create new group #{}", groups.len());
+                    groups.push(PrimitiveGroup {
+                        image_handle_id,
+                        canvas_entity: *entity,
+                        primitives: vec![primitive_ref],
+                    });
+                }
+            }
+        }
+
+        trace!("Merge groups:");
+        for group in &groups {
+            trace!("+ Image = {:?}", group.image_handle_id);
+            for prim in &group.primitives {
+                trace!("  + i = {} | j = {}", prim.index, prim.sub_index);
+            }
+        }
+
+        debug!("{} groups", groups.len());
+
         let mut primitives = vec![];
         let mut indices = vec![];
 
@@ -853,6 +998,7 @@ pub(crate) fn prepare_primitives(
             extracted_canvas.primitives.len()
         );
         let mut current_batch = PrimitiveBatch::invalid();
+        let mut num_batches = 0;
         for prim in &extracted_canvas.primitives {
             let base_index = primitives.len() as u32;
             trace!("+ Primitive @ base_index={}", base_index);
@@ -906,8 +1052,12 @@ pub(crate) fn prepare_primitives(
             // per glyph, each of which _can_ have a separate atlas texture so potentially
             // can split the draw into a new batch.
             trace!("Batch sub-primitives...");
-            let batch_iter = SubPrimIter::new(*prim, &extracted_canvas.texts);
-            for (image_handle_id, num_indices) in batch_iter {
+            let batch_iter = SubPrimIter::new(
+                *prim,
+                &extracted_canvas.texts,
+                1. / extracted_canvas.scale_factor,
+            );
+            for (image_handle_id, _, num_indices) in batch_iter {
                 let new_batch = PrimitiveBatch {
                     image_handle_id,
                     canvas_entity: *entity,
@@ -939,6 +1089,7 @@ pub(crate) fn prepare_primitives(
                         current_batch.range,
                     );
                     commands.spawn_bundle((current_batch,));
+                    num_batches += 1;
                 } else if let Some(gpu_image) =
                     gpu_images.get(&Handle::weak(current_batch.image_handle_id))
                 {
@@ -975,6 +1126,7 @@ pub(crate) fn prepare_primitives(
                         current_batch.image_handle_id,
                     );
                     commands.spawn_bundle((current_batch,));
+                    num_batches += 1;
                 } else if !current_batch.range.is_empty() {
                     trace!(
                         "Ignoring current batch index={:?}: GPU texture not ready.",
@@ -998,6 +1150,7 @@ pub(crate) fn prepare_primitives(
                     current_batch.range,
                 );
                 commands.spawn_bundle((current_batch,));
+                num_batches += 1;
             } else if let Some(gpu_image) =
                 gpu_images.get(&Handle::weak(current_batch.image_handle_id))
             {
@@ -1032,6 +1185,7 @@ pub(crate) fn prepare_primitives(
                     current_batch.image_handle_id,
                 );
                 commands.spawn_bundle((current_batch,));
+                num_batches += 1;
             } else if !current_batch.range.is_empty() {
                 trace!(
                     "Ignoring current batch index={:?}: GPU texture not ready.",
@@ -1039,6 +1193,8 @@ pub(crate) fn prepare_primitives(
                 );
             }
         }
+
+        debug!("{} batches", num_batches);
 
         // Upload to GPU buffers
         if primitives.len() > 0 && indices.len() > 0 {

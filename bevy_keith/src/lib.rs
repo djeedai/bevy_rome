@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 mod canvas;
+mod rect_ex;
 mod render;
 mod render_context;
 mod text;
@@ -16,6 +17,7 @@ use render::{
 };
 
 pub use canvas::{Canvas, Primitive};
+pub use rect_ex::RectEx;
 pub use render_context::RenderContext;
 pub use text::{CanvasTextId, KeithTextPipeline};
 

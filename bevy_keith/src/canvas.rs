@@ -13,7 +13,7 @@ use bevy::{
 };
 
 use crate::{
-    render::ExtractedText,
+    render::{ExtractedText, ExtractedGlyph},
     render_context::{RenderContext, TextLayout},
 };
 
@@ -277,6 +277,16 @@ pub struct TextPrimitive {
 impl TextPrimitive {
     pub const ROW_PER_GLYPH: u32 = 9;
     pub const INDEX_PER_GLYPH: u32 = 6;
+
+    pub fn bounding_rect(&self, glyph: &ExtractedGlyph, inv_scale_factor: f32) -> Rect {
+        // Glyph position is center of rect, we need bottom-left corner for min
+        let min = glyph.offset - glyph.size / 2.;
+        let min = self.rect.min + min * inv_scale_factor;
+        Rect {
+            min,
+            max: min + glyph.size * inv_scale_factor,
+        }
+    }
 }
 
 impl PrimImpl for TextPrimitive {
@@ -313,29 +323,26 @@ impl PrimImpl for TextPrimitive {
         let mut ii = 0;
         let inv_scale_factor = 1. / scale_factor;
         for i in 0..glyph_count {
-            let x = glyphs[i].offset.x;
-            let y = glyphs[i].offset.y;
-            let w = glyphs[i].size.x;
-            let h = glyphs[i].size.y;
+            let pos = glyphs[i].offset;
+            let size = glyphs[i].size;
             // Glyph position is center of rect, we need bottom-left corner
-            let x = x - w / 2.;
-            let y = y - h / 2.;
-            let uv_x = glyphs[i].uv_rect.min.x / 512.0;
-            let uv_y = glyphs[i].uv_rect.min.y / 512.0;
-            let uv_w = glyphs[i].uv_rect.max.x / 512.0 - uv_x;
-            let uv_h = glyphs[i].uv_rect.max.y / 512.0 - uv_y;
+            let pos = pos - size / 2.;
+            let pos = self.rect.min + pos * inv_scale_factor;
+            let size = size * inv_scale_factor;
+            let mut uv_pos = glyphs[i].uv_rect.min / 512.0;
+            let mut uv_size = glyphs[i].uv_rect.max / 512.0 - uv_pos;
             // Glyph UV is flipped vertically
-            let uv_y = uv_y + uv_h;
-            let uv_h = -uv_h;
-            prim[ip + 0].write(self.rect.min.x + x * inv_scale_factor);
-            prim[ip + 1].write(self.rect.min.y + y * inv_scale_factor);
-            prim[ip + 2].write(w * inv_scale_factor);
-            prim[ip + 3].write(h * inv_scale_factor);
+            uv_pos.y = uv_pos.y + uv_size.y;
+            uv_size.y = -uv_size.y;
+            prim[ip + 0].write(pos.x);
+            prim[ip + 1].write(pos.y);
+            prim[ip + 2].write(size.x);
+            prim[ip + 3].write(size.y);
             prim[ip + 4].write(bytemuck::cast(glyphs[i].color));
-            prim[ip + 5].write(uv_x);
-            prim[ip + 6].write(uv_y);
-            prim[ip + 7].write(uv_w);
-            prim[ip + 8].write(uv_h);
+            prim[ip + 5].write(uv_pos.x);
+            prim[ip + 6].write(uv_pos.y);
+            prim[ip + 7].write(uv_size.x);
+            prim[ip + 8].write(uv_size.y);
             ip += Self::ROW_PER_GLYPH as usize;
             for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
                 let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Glyph, 0);

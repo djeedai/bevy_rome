@@ -85,16 +85,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // });
 }
 
-trait RectEx {
-    fn contains(&self, point: Vec2) -> bool;
-}
-
-impl RectEx for Rect {
-    fn contains(&self, point: Vec2) -> bool {
-        point.cmpge(self.min).all() && point.cmple(self.max).all()
-    }
-}
-
 fn draw_button(
     ctx: &mut RenderContext,
     rect: Rect,
@@ -174,15 +164,15 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, windows: Res<Windows>, cam: Quer
     };
     ctx.draw_image(rect, my_res.image.clone());
 
-    let brush = ctx.solid_brush(Color::GREEN);
-    for i in 0..=10 {
-        ctx.line(
-            Vec2::new(-200.5, 0.5 + i as f32 * 15.),
-            Vec2::new(0.5, 0.5 + i as f32 * 40.),
-            &brush,
-            1. + i as f32,
-        );
-    }
+    // let brush = ctx.solid_brush(Color::GREEN);
+    // for i in 0..=10 {
+    //     ctx.line(
+    //         Vec2::new(-200.5, 0.5 + i as f32 * 15.),
+    //         Vec2::new(0.5, 0.5 + i as f32 * 40.),
+    //         &brush,
+    //         1. + i as f32,
+    //     );
+    // }
 
     // Buttons
     let rect = Rect {
