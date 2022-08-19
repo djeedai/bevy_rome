@@ -6,6 +6,13 @@ Currently a purely immediate-mode library (the ), but with future plans to explo
 
 ## Usage
 
+Add a dependency to `Cargo.toml`:
+
+```toml
+[dependencies]
+bevy_keith = "0.0.2"
+```
+
 Add the `KeithPlugin` to your Bevy app:
 
 ```rust
