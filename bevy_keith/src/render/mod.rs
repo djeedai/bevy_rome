@@ -929,15 +929,18 @@ pub(crate) fn prepare_primitives(
                 1. / extracted_canvas.scale_factor,
             );
             trace!("prim_index: {}", prim_index);
-            for (sub_index, (image_handle_id, bounding_rect, _)) in batch_iter.enumerate()
-            {
+            for (sub_index, (image_handle_id, bounding_rect, _)) in batch_iter.enumerate() {
                 // Reference to the current sub-primitive
                 let primitive_ref = PrimitiveRef {
                     index: prim_index,
                     sub_index,
                     bounding_rect,
                 };
-                trace!("primitive_ref: {:?} | image_handle_id = {:?}", primitive_ref, image_handle_id);
+                trace!(
+                    "primitive_ref: {:?} | image_handle_id = {:?}",
+                    primitive_ref,
+                    image_handle_id
+                );
 
                 let mut was_merged = false;
                 if groups.len() > 0 {
@@ -997,144 +1000,149 @@ pub(crate) fn prepare_primitives(
             "Serialize {} primitives...",
             extracted_canvas.primitives.len()
         );
-        let mut current_batch = PrimitiveBatch::invalid();
-        let mut num_batches = 0;
-        for prim in &extracted_canvas.primitives {
-            let base_index = primitives.len() as u32;
-            trace!("+ Primitive @ base_index={}", base_index);
+        for group in &groups {
+            trace!("+ Group: image = {:?}", group.image_handle_id);
+            for (index, sub_index) in group.primitives.iter().map(|pr| (pr.index, pr.sub_index)) {
+                let base_index = primitives.len() as u32;
+                trace!("  + Primitive @ base_index={}", base_index);
 
-            // Serialize the primitive
-            let PrimitiveInfo {
-                row_count,
-                index_count,
-            } = prim.info(&extracted_canvas.texts[..]);
-            trace!("=> rs={} is={}", row_count, index_count);
-            if row_count > 0 && index_count > 0 {
-                let row_count = row_count as usize;
-                let index_count = index_count as usize;
+                
 
-                // Reserve some (uninitialized) storage for new data
-                primitives.reserve(row_count);
-                indices.reserve(index_count);
-                let prim_slice = primitives.spare_capacity_mut();
-                let idx_slice = indices.spare_capacity_mut();
+                TODO... serialize in order of groups
 
-                // Write primitives and indices directly into storage
-                prim.write(
-                    &extracted_canvas.texts[..],
-                    &mut prim_slice[..row_count],
-                    base_index,
-                    &mut idx_slice[..index_count],
-                    extracted_canvas.scale_factor,
-                );
+                // Serialize the primitive
+                let PrimitiveInfo {
+                    row_count,
+                    index_count,
+                } = prim.info(&extracted_canvas.texts[..]);
+                trace!("    => rs={} is={}", row_count, index_count);
+                if row_count > 0 && index_count > 0 {
+                    let row_count = row_count as usize;
+                    let index_count = index_count as usize;
 
-                // Apply new storage sizes once data is initialized
-                let new_row_count = primitives.len() + row_count;
-                unsafe { primitives.set_len(new_row_count) };
-                let new_index_count = indices.len() + index_count;
-                unsafe { indices.set_len(new_index_count) };
+                    // Reserve some (uninitialized) storage for new data
+                    primitives.reserve(row_count);
+                    indices.reserve(index_count);
+                    let prim_slice = primitives.spare_capacity_mut();
+                    let idx_slice = indices.spare_capacity_mut();
 
-                trace!("New primitive elements: (+{})", row_count);
-                trace_list!(
-                    "+ f32[] =",
-                    primitives[new_row_count - row_count..new_row_count],
-                    " {}"
-                );
-                trace!("New indices: (+{})", index_count);
-                trace_list!(
-                    "+ u32[] =",
-                    indices[new_index_count - index_count..new_index_count],
-                    " {:x}"
-                );
-            }
-
-            // Loop on sub-primitives; Text primitives expand to one Rect primitive
-            // per glyph, each of which _can_ have a separate atlas texture so potentially
-            // can split the draw into a new batch.
-            trace!("Batch sub-primitives...");
-            let batch_iter = SubPrimIter::new(
-                *prim,
-                &extracted_canvas.texts,
-                1. / extracted_canvas.scale_factor,
-            );
-            for (image_handle_id, _, num_indices) in batch_iter {
-                let new_batch = PrimitiveBatch {
-                    image_handle_id,
-                    canvas_entity: *entity,
-                    range: current_batch.range.end..current_batch.range.end + num_indices,
-                };
-                trace!(
-                    "New Batch: canvas_entity={:?} index={:?} handle={:?}",
-                    new_batch.canvas_entity,
-                    new_batch.range,
-                    new_batch.image_handle_id
-                );
-
-                if current_batch.try_merge(&new_batch) {
-                    assert_eq!(current_batch.range.end, new_batch.range.end);
-                    trace!(
-                        "Merged new batch with current batch: index={:?}",
-                        current_batch.range
+                    // Write primitives and indices directly into storage
+                    prim.write(
+                        &extracted_canvas.texts[..],
+                        &mut prim_slice[..row_count],
+                        base_index,
+                        &mut idx_slice[..index_count],
+                        extracted_canvas.scale_factor,
                     );
-                    continue;
-                }
 
-                // Batches are different; output the previous one before starting a new one.
+                    // Apply new storage sizes once data is initialized
+                    let new_row_count = primitives.len() + row_count;
+                    unsafe { primitives.set_len(new_row_count) };
+                    let new_index_count = indices.len() + index_count;
+                    unsafe { indices.set_len(new_index_count) };
 
-                // Check if the previous batch image is available on GPU; if so output the batch
-                if !current_batch.image_handle_id.is_valid() {
-                    trace!(
-                        "Spawning batch: canvas_entity={:?} index={:?} (no tex)",
-                        current_batch.canvas_entity,
-                        current_batch.range,
+                    trace!("New primitive elements: (+{})", row_count);
+                    trace_list!(
+                        "+ f32[] =",
+                        primitives[new_row_count - row_count..new_row_count],
+                        " {}"
                     );
-                    commands.spawn_bundle((current_batch,));
-                    num_batches += 1;
-                } else if let Some(gpu_image) =
-                    gpu_images.get(&Handle::weak(current_batch.image_handle_id))
-                {
-                    image_bind_groups
-                        .values
-                        .entry(Handle::weak(current_batch.image_handle_id))
-                        .or_insert_with(|| {
-                            debug!(
-                                "Insert new bind group for handle={:?}",
-                                current_batch.image_handle_id
-                            );
-                            render_device.create_bind_group(&BindGroupDescriptor {
-                                entries: &[
-                                    BindGroupEntry {
-                                        binding: 0,
-                                        resource: BindingResource::TextureView(
-                                            &gpu_image.texture_view,
-                                        ),
-                                    },
-                                    BindGroupEntry {
-                                        binding: 1,
-                                        resource: BindingResource::Sampler(&gpu_image.sampler),
-                                    },
-                                ],
-                                label: Some("primitive_material_bind_group"),
-                                layout: &primitive_pipeline.material_layout,
-                            })
-                        });
-
-                    trace!(
-                        "Spawning batch: canvas_entity={:?} index={:?} handle={:?}",
-                        current_batch.canvas_entity,
-                        current_batch.range,
-                        current_batch.image_handle_id,
-                    );
-                    commands.spawn_bundle((current_batch,));
-                    num_batches += 1;
-                } else if !current_batch.range.is_empty() {
-                    trace!(
-                        "Ignoring current batch index={:?}: GPU texture not ready.",
-                        current_batch.range
+                    trace!("New indices: (+{})", index_count);
+                    trace_list!(
+                        "+ u32[] =",
+                        indices[new_index_count - index_count..new_index_count],
+                        " {:x}"
                     );
                 }
 
-                current_batch = new_batch;
+                // Loop on sub-primitives; Text primitives expand to one Rect primitive
+                // per glyph, each of which _can_ have a separate atlas texture so potentially
+                // can split the draw into a new batch.
+                trace!("Batch sub-primitives...");
+                let batch_iter = SubPrimIter::new(
+                    *prim,
+                    &extracted_canvas.texts,
+                    1. / extracted_canvas.scale_factor,
+                );
+                for (image_handle_id, _, num_indices) in batch_iter {
+                    let new_batch = PrimitiveBatch {
+                        image_handle_id,
+                        canvas_entity: *entity,
+                        range: current_batch.range.end..current_batch.range.end + num_indices,
+                    };
+                    trace!(
+                        "New Batch: canvas_entity={:?} index={:?} handle={:?}",
+                        new_batch.canvas_entity,
+                        new_batch.range,
+                        new_batch.image_handle_id
+                    );
+
+                    if current_batch.try_merge(&new_batch) {
+                        assert_eq!(current_batch.range.end, new_batch.range.end);
+                        trace!(
+                            "Merged new batch with current batch: index={:?}",
+                            current_batch.range
+                        );
+                        continue;
+                    }
+
+                    // Batches are different; output the previous one before starting a new one.
+
+                    // Check if the previous batch image is available on GPU; if so output the batch
+                    if !current_batch.image_handle_id.is_valid() {
+                        trace!(
+                            "Spawning batch: canvas_entity={:?} index={:?} (no tex)",
+                            current_batch.canvas_entity,
+                            current_batch.range,
+                        );
+                        commands.spawn_bundle((current_batch,));
+                        num_batches += 1;
+                    } else if let Some(gpu_image) =
+                        gpu_images.get(&Handle::weak(current_batch.image_handle_id))
+                    {
+                        image_bind_groups
+                            .values
+                            .entry(Handle::weak(current_batch.image_handle_id))
+                            .or_insert_with(|| {
+                                debug!(
+                                    "Insert new bind group for handle={:?}",
+                                    current_batch.image_handle_id
+                                );
+                                render_device.create_bind_group(&BindGroupDescriptor {
+                                    entries: &[
+                                        BindGroupEntry {
+                                            binding: 0,
+                                            resource: BindingResource::TextureView(
+                                                &gpu_image.texture_view,
+                                            ),
+                                        },
+                                        BindGroupEntry {
+                                            binding: 1,
+                                            resource: BindingResource::Sampler(&gpu_image.sampler),
+                                        },
+                                    ],
+                                    label: Some("primitive_material_bind_group"),
+                                    layout: &primitive_pipeline.material_layout,
+                                })
+                            });
+
+                        trace!(
+                            "Spawning batch: canvas_entity={:?} index={:?} handle={:?}",
+                            current_batch.canvas_entity,
+                            current_batch.range,
+                            current_batch.image_handle_id,
+                        );
+                        commands.spawn_bundle((current_batch,));
+                        num_batches += 1;
+                    } else if !current_batch.range.is_empty() {
+                        trace!(
+                            "Ignoring current batch index={:?}: GPU texture not ready.",
+                            current_batch.range
+                        );
+                    }
+
+                    current_batch = new_batch;
+                }
             }
         }
 

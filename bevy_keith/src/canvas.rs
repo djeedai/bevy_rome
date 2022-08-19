@@ -2,6 +2,7 @@ use std::mem::MaybeUninit;
 
 use bevy::{
     asset::HandleId,
+    core::{Pod, Zeroable},
     ecs::{component::Component, reflect::ReflectComponent, system::Query},
     log::trace,
     math::{Vec2, Vec3},
@@ -13,7 +14,7 @@ use bevy::{
 };
 
 use crate::{
-    render::{ExtractedText, ExtractedGlyph},
+    render::{ExtractedGlyph, ExtractedText},
     render_context::{RenderContext, TextLayout},
 };
 
@@ -21,6 +22,78 @@ use crate::{
 pub(crate) struct PrimitiveInfo {
     pub row_count: u32,
     pub index_count: u32,
+}
+
+fn to_array(r: &Rect) -> [f32; 4] {
+    let mut arr = [0.; 4];
+    arr[..2].copy_from_slice(&r.min.to_array());
+    arr[2..].copy_from_slice(&r.max.to_array());
+    arr
+}
+
+enum GpuPrimitive {
+    Rect(GpuRect),
+    Line(GpuLine),
+}
+
+/// GPU representation into a primitive buffer of a [`RectPrimitive`].
+#[derive(Clone, Copy, Pod, Zeroable)]
+#[repr(C)]
+struct GpuRect {
+    rect: [f32; 4],
+    color: u32,
+}
+
+impl From<&RectPrimitive> for GpuRect {
+    fn from(r: &RectPrimitive) -> GpuRect {
+        GpuRect {
+            rect: to_array(&r.rect),
+            color: r.color.as_linear_rgba_u32(),
+        }
+    }
+}
+
+/// GPU representation into a primitive buffer of a [`LinePrimitive`].
+#[derive(Clone, Copy, Pod, Zeroable)]
+#[repr(C)]
+struct GpuLine {
+    start: [f32; 2],
+    end: [f32; 2],
+    color: u32,
+    thickness: f32,
+}
+
+impl From<&LinePrimitive> for GpuLine {
+    fn from(l: &LinePrimitive) -> GpuLine {
+        GpuLine {
+            start: l.start.to_array(),
+            end: l.end.to_array(),
+            color: l.color.as_linear_rgba_u32(),
+            thickness: l.thickness,
+        }
+    }
+}
+
+/// Stream of GPU primitives and their associated drawing indices.
+pub(crate) struct PrimitiveStream {
+    /// Buffer of primitives, encoded as [`f32`] for easy shader access.
+    primitives: Vec<f32>,
+    /// Buffer of indices for drawing the primitives.
+    indices: Vec<u32>,
+}
+
+impl PrimitiveStream {
+    /// Write a primitive into the stream.
+    pub fn write<T: Pod>(&mut self, blob: &T, corners: &[u8], kind: GpuPrimitiveKind, texture_index: u8) {
+        // Write the indices to draw the primitive
+        let base_index = self.primitives.len() as u32;
+        self.indices.extend(corners.iter().map(|&c| GpuIndex::new(base_index, c, kind, texture_index).raw()));
+
+        // Write the primitive itself
+        let raw: &[u8] = bytemuck::bytes_of(blob);
+        let raw: &[f32] = bytemuck::cast_slice(raw);
+        self.primitives.extend_from_slice(raw);
+    }
 }
 
 /// Implementation trait for primitives.
@@ -39,6 +112,9 @@ pub(crate) trait PrimImpl {
         idx: &mut [MaybeUninit<u32>],
         scale_factor: f32,
     );
+
+    /// Write the primitive into the given stream.
+    fn write_stream(&self, stream: &mut PrimitiveStream);
 }
 
 /// Kind of primitives understood by the GPU shader.
@@ -51,11 +127,8 @@ pub(crate) trait PrimImpl {
 enum GpuPrimitiveKind {
     /// Axis-aligned rectangle, possibly textured.
     Rect = 0,
-    /// Text glyph. Same as `Rect`, but samples from texture's alpha instead of RGB,
-    /// and is always textured.
-    Glyph = 1,
     /// Line segment.
-    Line = 2,
+    Line = 1,
 }
 
 /// Encoded vertex index passed to the GPU shader.
@@ -139,6 +212,14 @@ impl PrimImpl for Primitive {
             Primitive::Text(t) => t.write(texts, prim, offset, idx, scale_factor),
         };
     }
+
+    fn write_stream(&self, stream: &mut PrimitiveStream) {
+        match &self {
+            Primitive::Line(l) => l.write_stream(stream),
+            Primitive::Rect(r) => r.write_stream(stream),
+            Primitive::Text(t) => t.write_stream(stream),
+        };
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -177,6 +258,12 @@ impl PrimImpl for LinePrimitive {
             let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Line, 0);
             idx[i].write(index.raw());
         }
+    }
+
+    #[inline]
+    fn write_stream(&self, stream: &mut PrimitiveStream) {
+        let gpu: GpuLine = self.into();
+        stream.write(&gpu, &[0, 2, 3, 0, 3, 1], GpuPrimitiveKind::Line, 0);
     }
 }
 
@@ -265,6 +352,12 @@ impl PrimImpl for RectPrimitive {
             idx[i].write(index.raw());
         }
     }
+
+    #[inline]
+    fn write_stream(&self, stream: &mut PrimitiveStream) {
+        let gpu: GpuRect = self.into();
+        stream.write(&gpu, &[0, 2, 3, 0, 3, 1], GpuPrimitiveKind::Rect, 0);
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -351,6 +444,12 @@ impl PrimImpl for TextPrimitive {
             ii += Self::INDEX_PER_GLYPH as usize;
             base_index += Self::ROW_PER_GLYPH;
         }
+    }
+
+    fn write_stream(&self, stream: &mut PrimitiveStream) {
+        TODO - we should write only a sub-primitive here, because some glyphs might get grouped differently if inside a different atlas texture...
+        let gpu: GpuRect = self.into();
+        stream.write(&gpu);
     }
 }
 
