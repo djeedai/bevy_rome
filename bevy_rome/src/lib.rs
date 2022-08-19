@@ -10,8 +10,11 @@ use std::any::{Any, TypeId};
 
 mod diff;
 mod error;
+mod game;
 
 use error::Error;
+
+pub use game::Name;
 
 trait Message<'de, T>: Serialize + Deserialize<'de> {
     fn undo(&mut self, target: &mut T);
