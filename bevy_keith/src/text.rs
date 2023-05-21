@@ -75,7 +75,7 @@ pub fn process_glyphs(
     let factor_changed = scale_factor_changed.iter().last().is_some();
 
     // TODO - handle multi-window
-    let window = q_window.single();
+    let Ok(window) = q_window.get_single() else { return; };
     let scale_factor = window.scale_factor();
     let inv_scale_factor = 1. / scale_factor;
 

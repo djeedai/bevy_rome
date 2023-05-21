@@ -1,12 +1,6 @@
 //! Basic quad and text drawing inside a `Canvas`.
 
-use bevy::{
-    log::LogPlugin,
-    math::Rect,
-    prelude::*,
-    render::settings::{PowerPreference, WgpuSettings},
-    window::PrimaryWindow,
-};
+use bevy::{log::LogPlugin, math::Rect, prelude::*, window::PrimaryWindow};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_keith::*;
@@ -19,7 +13,7 @@ fn main() {
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
-                    level: bevy::log::Level::INFO,
+                    level: bevy::log::Level::WARN,
                     filter: "quad=trace,bevy_keith=debug".to_string(),
                 })
                 .set(WindowPlugin {
@@ -90,16 +84,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // });
 }
 
-trait RectEx {
-    fn contains(&self, point: Vec2) -> bool;
-}
-
-impl RectEx for Rect {
-    fn contains(&self, point: Vec2) -> bool {
-        point.cmpge(self.min).all() && point.cmple(self.max).all()
-    }
-}
-
 fn draw_button(
     ctx: &mut RenderContext,
     rect: Rect,
@@ -131,11 +115,7 @@ fn draw_button(
     ctx.draw_text(text, (rect.min + rect.max) / 2.);
 }
 
-fn run(
-    mut query: Query<(&mut Canvas, &MyRes)>,
-    q_window: Query<&Window, With<PrimaryWindow>>,
-    cam: Query<&Camera>,
-) {
+fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<PrimaryWindow>>) {
     let (mut canvas, my_res) = query.single_mut();
     canvas.clear();
 

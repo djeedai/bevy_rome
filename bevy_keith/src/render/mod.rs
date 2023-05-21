@@ -41,7 +41,7 @@ use bevy::{
 
 use crate::{
     canvas::{Canvas, PrimImpl, Primitive, PrimitiveInfo, TextPrimitive},
-    text::{CanvasTextId, KeithTextPipeline},
+    text::CanvasTextId,
     PRIMITIVE_SHADER_HANDLE,
 };
 
@@ -593,7 +593,6 @@ pub(crate) fn extract_primitives(
     mut extracted_canvases: ResMut<ExtractedCanvases>,
     texture_atlases: Extract<Res<Assets<TextureAtlas>>>,
     q_window: Extract<Query<&Window, With<PrimaryWindow>>>,
-    text_pipeline: Extract<Res<KeithTextPipeline>>,
     canvas_query: Extract<
         Query<(
             Entity,
@@ -606,7 +605,8 @@ pub(crate) fn extract_primitives(
     trace!("extract_primitives");
 
     // TODO - handle multi-window
-    let scale_factor = q_window.single().scale_factor() as f32;
+    let Ok(primary_window) = q_window.get_single() else { return; };
+    let scale_factor = primary_window.scale_factor() as f32;
     let inv_scale_factor = 1. / scale_factor;
 
     let extracted_canvases = &mut extracted_canvases.canvases;
