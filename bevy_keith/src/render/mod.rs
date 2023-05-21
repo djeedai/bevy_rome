@@ -349,6 +349,7 @@ impl FromWorld for PrimitivePipeline {
 
 bitflags::bitflags! {
     #[repr(transparent)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     // NOTE: Apparently quadro drivers support up to 64x MSAA.
     // MSAA uses the highest 6 bits for the MSAA sample count - 1 to support up to 64x MSAA.
     pub struct PrimitivePipelineKey: u32 {
@@ -364,11 +365,11 @@ impl PrimitivePipelineKey {
 
     pub fn from_msaa_samples(msaa_samples: u32) -> Self {
         let msaa_bits = ((msaa_samples - 1) & Self::MSAA_MASK_BITS) << Self::MSAA_SHIFT_BITS;
-        PrimitivePipelineKey::from_bits(msaa_bits).unwrap()
+        PrimitivePipelineKey::from_bits_retain(msaa_bits)
     }
 
     pub fn msaa_samples(&self) -> u32 {
-        ((self.bits >> Self::MSAA_SHIFT_BITS) & Self::MSAA_MASK_BITS) + 1
+        ((self.bits() >> Self::MSAA_SHIFT_BITS) & Self::MSAA_MASK_BITS) + 1
     }
 }
 
