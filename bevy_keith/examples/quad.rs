@@ -1,34 +1,39 @@
 //! Basic quad and text drawing inside a `Canvas`.
 
 use bevy::{
+    log::LogPlugin,
+    math::Rect,
     prelude::*,
     render::settings::{PowerPreference, WgpuSettings},
-    sprite::Rect,
+    window::PrimaryWindow,
 };
-use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_keith::*;
 
 fn main() {
-    App::default()
-        .insert_resource(WindowDescriptor {
-            title: "bevy_keith - quad".to_string(),
-            //scale_factor_override: Some(1.0),
-            ..Default::default()
-        })
-        .insert_resource(WgpuSettings {
-            power_preference: PowerPreference::HighPerformance,
-            ..default()
-        })
+    App::new()
+        // Helper to exit with ESC key
+        .add_system(bevy::window::close_on_esc)
+        // Default plugins
+        .add_plugins(
+            DefaultPlugins
+                .set(LogPlugin {
+                    level: bevy::log::Level::INFO,
+                    filter: "quad=trace,bevy_keith=debug".to_string(),
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "bevy_keith - quad".to_string(),
+                        ..default()
+                    }),
+                    ..default()
+                }),
+        )
         .insert_resource(ClearColor(Color::DARK_GRAY))
-        .insert_resource(bevy::log::LogSettings {
-            level: bevy::log::Level::WARN,
-            filter: "quad=trace,bevy_keith=debug".to_string(),
-        })
-        .add_plugins(DefaultPlugins)
         .add_system(bevy::window::close_on_esc)
         .add_plugin(KeithPlugin)
-        .add_plugin(WorldInspectorPlugin::new())
+        .add_plugin(WorldInspectorPlugin::default())
         .add_startup_system(setup)
         .add_system(run)
         .run();
@@ -50,7 +55,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     });
     canvas.set_background_color(Some(Color::BEIGE));
     commands
-        .spawn_bundle(Camera2dBundle::default())
+        .spawn(Camera2dBundle::default())
         .insert(canvas)
         .insert(MyRes {
             font: font.clone(),
@@ -121,21 +126,22 @@ fn draw_button(
         .font(font)
         .font_size(16.)
         .bounds(rect.size())
-        .alignment(TextAlignment {
-            vertical: VerticalAlign::Center,
-            horizontal: HorizontalAlign::Center,
-        })
+        .alignment(TextAlignment::Center)
         .build();
     ctx.draw_text(text, (rect.min + rect.max) / 2.);
 }
 
-fn run(mut query: Query<(&mut Canvas, &MyRes)>, windows: Res<Windows>, cam: Query<&Camera>) {
+fn run(
+    mut query: Query<(&mut Canvas, &MyRes)>,
+    q_window: Query<&Window, With<PrimaryWindow>>,
+    cam: Query<&Camera>,
+) {
     let (mut canvas, my_res) = query.single_mut();
     canvas.clear();
 
     let mut ctx = canvas.render_context();
 
-    let cursor_pos = if let Some(window) = windows.get_primary() {
+    let cursor_pos = if let Ok(window) = q_window.get_single() {
         window
             .cursor_position()
             .map(|v| v - Vec2::new(1280., 720.) / 2.) // FIXME - cheap window-to-canvas hard-coded conversion
@@ -213,6 +219,12 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, windows: Res<Windows>, cam: Quer
             min: Vec2::new(-400., -180. + i as f32 * 35.),
             max: Vec2::new(-280., -150. + i as f32 * 35.),
         };
-        draw_button(&mut ctx, rect, &format!("Button #{} {}", i, String::from_utf8_lossy(st)), my_res.font.clone(), cursor_pos);
+        draw_button(
+            &mut ctx,
+            rect,
+            &format!("Button #{} {}", i, String::from_utf8_lossy(st)),
+            my_res.font.clone(),
+            cursor_pos,
+        );
     }
 }

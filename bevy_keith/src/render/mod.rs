@@ -7,7 +7,7 @@ use bevy::{
         component::Component,
         entity::Entity,
         system::{
-            lifetimeless::{Read, SQuery, SRes},
+            lifetimeless::{Read, SRes},
             Commands, Query, Res, ResMut, SystemParamItem,
         },
         world::{FromWorld, World},
@@ -17,8 +17,8 @@ use bevy::{
     render::{
         render_asset::RenderAssets,
         render_phase::{
-            BatchedPhaseItem, DrawFunctions, EntityRenderCommand, RenderCommand,
-            RenderCommandResult, RenderPhase, SetItemPipeline, TrackedRenderPass,
+            BatchedPhaseItem, DrawFunctions, PhaseItem, RenderCommand, RenderCommandResult,
+            RenderPhase, SetItemPipeline, TrackedRenderPass,
         },
         render_resource::{
             BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
@@ -36,7 +36,7 @@ use bevy::{
         Extract,
     },
     utils::{tracing::enabled, FloatOrd, HashMap},
-    window::WindowId,
+    window::PrimaryWindow,
 };
 
 use crate::{
@@ -67,46 +67,46 @@ pub type DrawPrimitive = (
 
 pub struct SetPrimitiveViewBindGroup<const I: usize>;
 
-impl<const I: usize> EntityRenderCommand for SetPrimitiveViewBindGroup<I> {
-    type Param = (SRes<PrimitiveMeta>, SQuery<Read<ViewUniformOffset>>);
+impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveViewBindGroup<I> {
+    type Param = SRes<PrimitiveMeta>;
+    type ViewWorldQuery = Read<ViewUniformOffset>;
+    type ItemWorldQuery = ();
 
     fn render<'w>(
-        view: Entity,
-        _item: Entity,
-        (primitive_meta, view_query): SystemParamItem<'w, '_, Self::Param>,
+        _item: &P,
+        view_uniform_offset: &'_ ViewUniformOffset,
+        _entity: (),
+        primitive_meta: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         trace!("SetPrimitiveViewBindGroup: I={}", I);
-        let view_uniform = view_query.get(view).unwrap();
-        pass.set_bind_group(
-            I,
-            primitive_meta
-                .into_inner()
-                .view_bind_group
-                .as_ref()
-                .unwrap(),
-            &[view_uniform.offset],
-        );
+        let view_bind_group = primitive_meta
+            .into_inner()
+            .view_bind_group
+            .as_ref()
+            .unwrap();
+        pass.set_bind_group(I, view_bind_group, &[view_uniform_offset.offset]);
         RenderCommandResult::Success
     }
 }
 
 pub struct SetPrimitiveBufferBindGroup<const I: usize>;
 
-impl<const I: usize> EntityRenderCommand for SetPrimitiveBufferBindGroup<I> {
-    type Param = (SRes<PrimitiveMeta>, SQuery<Read<PrimitiveBatch>>);
+impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveBufferBindGroup<I> {
+    type Param = SRes<PrimitiveMeta>;
+    type ViewWorldQuery = ();
+    type ItemWorldQuery = Read<PrimitiveBatch>;
 
     fn render<'w>(
-        _view: Entity,
-        item: Entity,
-        (primitive_meta, batch_query): SystemParamItem<'w, '_, Self::Param>,
+        _item: &P,
+        _view: (),
+        primitive_batch: &'_ PrimitiveBatch,
+        primitive_meta: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let primitive_batch = batch_query.get(item).unwrap();
         trace!(
-            "SetPrimitiveBufferBindGroup: I={} item={:?} canvas_entity={:?}",
+            "SetPrimitiveBufferBindGroup: I={} canvas_entity={:?}",
             I,
-            item,
             primitive_batch.canvas_entity
         );
         if let Some(canvas_meta) = primitive_meta
@@ -126,16 +126,18 @@ impl<const I: usize> EntityRenderCommand for SetPrimitiveBufferBindGroup<I> {
 
 pub struct SetPrimitiveTextureBindGroup<const I: usize>;
 
-impl<const I: usize> EntityRenderCommand for SetPrimitiveTextureBindGroup<I> {
-    type Param = (SRes<ImageBindGroups>, SQuery<Read<PrimitiveBatch>>);
+impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveTextureBindGroup<I> {
+    type Param = SRes<ImageBindGroups>;
+    type ViewWorldQuery = ();
+    type ItemWorldQuery = Read<PrimitiveBatch>;
 
     fn render<'w>(
-        _view: Entity,
-        item: Entity,
-        (image_bind_groups, query_batch): SystemParamItem<'w, '_, Self::Param>,
+        _item: &P,
+        _view: (),
+        primitive_batch: &'_ PrimitiveBatch,
+        image_bind_groups: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let primitive_batch = query_batch.get(item).unwrap();
         trace!(
             "SetPrimitiveTextureBindGroup: I={} image={:?}",
             I,
@@ -163,15 +165,17 @@ impl<const I: usize> EntityRenderCommand for SetPrimitiveTextureBindGroup<I> {
 pub struct DrawPrimitiveBatch;
 
 impl<P: BatchedPhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
-    type Param = (SRes<PrimitiveMeta>, SQuery<Read<PrimitiveBatch>>);
+    type Param = SRes<PrimitiveMeta>;
+    type ViewWorldQuery = ();
+    type ItemWorldQuery = Read<PrimitiveBatch>;
 
     fn render<'w>(
-        _view: Entity,
         item: &P,
-        (primitive_meta, query_batch): SystemParamItem<'w, '_, Self::Param>,
+        _view: (),
+        primitive_batch: &'_ PrimitiveBatch,
+        primitive_meta: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let primitive_batch = query_batch.get(item.entity()).unwrap();
         let primitive_meta = primitive_meta.into_inner();
         if let Some(canvas_meta) = primitive_meta
             .canvas_meta
@@ -246,6 +250,7 @@ struct CanvasMeta {
     index_buffer: Buffer,
 }
 
+#[derive(Resource)]
 pub struct PrimitiveMeta {
     view_bind_group: Option<BindGroup>,
     /// Map from an [`Entity`] with a [`Canvas`] component to the meta for that canvas.
@@ -262,12 +267,13 @@ impl Default for PrimitiveMeta {
 }
 
 /// Shader bind groups for all images currently in use by primitives.
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub struct ImageBindGroups {
     values: HashMap<Handle<Image>, BindGroup>,
 }
 
 /// Rendering pipeline for [`Canvas`] primitives.
+#[derive(Resource)]
 pub struct PrimitivePipeline {
     /// Bind group layout for the uniform buffer containing the [`ViewUniform`] with
     /// the camera details of the current view being rendered.
@@ -370,12 +376,12 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
     type Key = PrimitivePipelineKey;
 
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
-        let mut layouts = vec![self.view_layout.clone(), self.prim_layout.clone()];
+        let mut layout = vec![self.view_layout.clone(), self.prim_layout.clone()];
         let mut shader_defs = Vec::new();
 
         if key.contains(PrimitivePipelineKey::TEXTURED) {
-            shader_defs.push("TEXTURED".to_string());
-            layouts.push(self.material_layout.clone());
+            shader_defs.push("TEXTURED".into());
+            layout.push(self.material_layout.clone());
         }
 
         RenderPipelineDescriptor {
@@ -395,7 +401,7 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
                     write_mask: ColorWrites::ALL,
                 })],
             }),
-            layout: Some(layouts),
+            layout,
             primitive: PrimitiveState {
                 front_face: FrontFace::Ccw,
                 cull_mode: None,
@@ -412,6 +418,7 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
                 alpha_to_coverage_enabled: false,
             },
             label: Some("primitive_pipeline".into()),
+            push_constant_ranges: vec![],
         }
     }
 }
@@ -504,14 +511,14 @@ impl ExtractedCanvas {
 
 /// Resource attached to the render world and containing all the data extracted from the
 /// various visible [`Canvas`] components.
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub struct ExtractedCanvases {
     /// Map from app world's entity with a [`Canvas`] component to associated render world's
     /// extracted canvas.
     pub canvases: HashMap<Entity, ExtractedCanvas>,
 }
 
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub struct PrimitiveAssetEvents {
     pub images: Vec<AssetEvent<Image>>,
 }
@@ -568,7 +575,7 @@ pub(crate) struct ExtractedGlyph {
     /// Handle of the atlas texture where the glyph is stored.
     pub handle_id: HandleId,
     /// Rectangle in UV coordinates delimiting the glyph area in the atlas texture.
-    pub uv_rect: bevy::sprite::Rect,
+    pub uv_rect: bevy::math::Rect,
 }
 
 /// Render app system extracting all primitives from all [`Canvas`] components, for later
@@ -579,28 +586,35 @@ pub(crate) struct ExtractedGlyph {
 /// [`Canvas`] components require at least a [`GlobalTransform`] component attached to the
 /// same entity and describing the canvas 3D transform.
 ///
-/// An optional [`Visibility`] component can be added to that same entity to dynamically
+/// An optional [`ComputedVisibility`] component can be added to that same entity to dynamically
 /// control the canvas visibility. By default if absent the canvas is assumed visible.
 pub(crate) fn extract_primitives(
     mut extracted_canvases: ResMut<ExtractedCanvases>,
     texture_atlases: Extract<Res<Assets<TextureAtlas>>>,
-    windows: Extract<Res<Windows>>,
+    q_window: Extract<Query<&Window, With<PrimaryWindow>>>,
     text_pipeline: Extract<Res<KeithTextPipeline>>,
-    canvas_query: Extract<Query<(Entity, Option<&Visibility>, &Canvas, &GlobalTransform)>>,
+    canvas_query: Extract<
+        Query<(
+            Entity,
+            Option<&ComputedVisibility>,
+            &Canvas,
+            &GlobalTransform,
+        )>,
+    >,
 ) {
     trace!("extract_primitives");
 
     // TODO - handle multi-window
-    let scale_factor = windows.scale_factor(WindowId::primary()) as f32;
+    let scale_factor = q_window.single().scale_factor() as f32;
     let inv_scale_factor = 1. / scale_factor;
 
     let extracted_canvases = &mut extracted_canvases.canvases;
 
     extracted_canvases.clear();
 
-    for (entity, maybe_visibility, canvas, transform) in canvas_query.iter() {
-        // Skip hidden canvases
-        if !maybe_visibility.map_or(true, |vis| vis.is_visible) {
+    for (entity, maybe_computed_visibility, canvas, transform) in canvas_query.iter() {
+        // Skip hidden canvases. If no ComputedVisibility component is present, assume visible.
+        if !maybe_computed_visibility.map_or(true, |cvis| cvis.is_visible()) {
             continue;
         }
 
@@ -623,7 +637,7 @@ pub(crate) fn extract_primitives(
             let text_id = CanvasTextId::from_raw(entity, text.id);
             trace!("Extracting text {:?}...", text_id);
 
-            if let Some(text_layout) = text_pipeline.get_glyphs(&text_id) {
+            if let Some(text_layout) = &text.layout_info {
                 let width = text_layout.size.x * inv_scale_factor;
                 let height = text_layout.size.y * inv_scale_factor;
 
@@ -635,15 +649,16 @@ pub(crate) fn extract_primitives(
                     scale_factor
                 );
 
-                let alignment_offset = match text.alignment.vertical {
-                    VerticalAlign::Top => Vec2::new(0.0, -height),
-                    VerticalAlign::Center => Vec2::new(0.0, -height * 0.5),
-                    VerticalAlign::Bottom => Vec2::ZERO,
-                } + match text.alignment.horizontal {
-                    HorizontalAlign::Left => Vec2::ZERO,
-                    HorizontalAlign::Center => Vec2::new(-width * 0.5, 0.0),
-                    HorizontalAlign::Right => Vec2::new(-width, 0.0),
+                let alignment_offset = match text.alignment {
+                    TextAlignment::Left => Vec2::ZERO,
+                    TextAlignment::Center => Vec2::new(-width * 0.5, 0.0),
+                    TextAlignment::Right => Vec2::new(-width, 0.0),
                 };
+                //  + match text.alignment.vertical {
+                //     VerticalAlign::Top => Vec2::new(0.0, -height),
+                //     VerticalAlign::Center => Vec2::new(0.0, -height * 0.5),
+                //     VerticalAlign::Bottom => Vec2::ZERO,
+                // };
 
                 // let mut text_transform = extracted_canvas.transform;
                 // text_transform.scale *= inv_scale_factor;
@@ -672,7 +687,7 @@ pub(crate) fn extract_primitives(
                         offset: glyph_offset,
                         size: text_glyph.size,
                         color,
-                        handle_id: handle.id,
+                        handle_id: handle.id(),
                         uv_rect,
                     });
 
@@ -938,7 +953,7 @@ pub(crate) fn prepare_primitives(
                         current_batch.canvas_entity,
                         current_batch.range,
                     );
-                    commands.spawn_bundle((current_batch,));
+                    commands.spawn(current_batch);
                 } else if let Some(gpu_image) =
                     gpu_images.get(&Handle::weak(current_batch.image_handle_id))
                 {
@@ -974,7 +989,7 @@ pub(crate) fn prepare_primitives(
                         current_batch.range,
                         current_batch.image_handle_id,
                     );
-                    commands.spawn_bundle((current_batch,));
+                    commands.spawn(current_batch);
                 } else if !current_batch.range.is_empty() {
                     trace!(
                         "Ignoring current batch index={:?}: GPU texture not ready.",
@@ -997,7 +1012,7 @@ pub(crate) fn prepare_primitives(
                     current_batch.canvas_entity,
                     current_batch.range,
                 );
-                commands.spawn_bundle((current_batch,));
+                commands.spawn(current_batch);
             } else if let Some(gpu_image) =
                 gpu_images.get(&Handle::weak(current_batch.image_handle_id))
             {
@@ -1031,7 +1046,7 @@ pub(crate) fn prepare_primitives(
                     current_batch.range,
                     current_batch.image_handle_id,
                 );
-                commands.spawn_bundle((current_batch,));
+                commands.spawn(current_batch);
             } else if !current_batch.range.is_empty() {
                 trace!(
                     "Ignoring current batch index={:?}: GPU texture not ready.",
@@ -1096,7 +1111,7 @@ pub fn queue_primitives(
 
     // TODO - per view culling?! (via VisibleEntities)
     let draw_primitives_function = draw_functions.read().get_id::<DrawPrimitive>().unwrap();
-    let key = PrimitivePipelineKey::from_msaa_samples(msaa.samples);
+    let key = PrimitivePipelineKey::from_msaa_samples(msaa.samples());
     let untextured_pipeline = pipelines.specialize(&mut pipeline_cache, &primitive_pipeline, key);
     let textured_pipeline = pipelines.specialize(
         &mut pipeline_cache,

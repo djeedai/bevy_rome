@@ -1,6 +1,6 @@
 [package]
 name = "bevy_keith"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 resolver = "2"
@@ -14,13 +14,13 @@ readme = "README.md"
 exclude = ["examples/*.gif", ".github", "release.md"]
 
 [dependencies]
-bevy = { version = "0.8", default-features = false, features = ["bevy_asset", "bevy_core_pipeline", "render"] }
-bytemuck = { version = "1.7", features = ["derive"] }
-bitflags = "1.2"
+bevy = { version = "0.10", default-features = false, features = ["bevy_asset", "bevy_core_pipeline", "bevy_render", "bevy_text", "bevy_sprite"] }
+bytemuck = { version = "1.13", features = ["derive"] }
+bitflags = "2.3"
 copyless = "0.1.5"
 
 #[dev-dependencies]
-bevy-inspector-egui = "0.12"
+bevy-inspector-egui = "0.18"
 
 [[example]]
 name = "quad"

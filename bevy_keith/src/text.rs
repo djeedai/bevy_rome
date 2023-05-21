@@ -6,11 +6,15 @@ use bevy::{
         system::{Local, Query, Res, ResMut},
     },
     math::Vec2,
+    prelude::*,
     render::texture::Image,
     sprite::TextureAtlas,
-    text::{Font, FontAtlasSet, TextError, TextPipeline},
+    text::{
+        BreakLineOn, Font, FontAtlasSet, FontAtlasWarning, TextError, TextPipeline, TextSettings,
+        YAxisOrientation,
+    },
     utils::HashSet,
-    window::{WindowId, WindowScaleFactorChanged, Windows},
+    window::{PrimaryWindow, Window, WindowScaleFactorChanged},
 };
 
 use crate::Canvas;
@@ -40,7 +44,7 @@ impl CanvasTextId {
     }
 }
 
-pub type KeithTextPipeline = TextPipeline<CanvasTextId>;
+pub type KeithTextPipeline = TextPipeline; //<CanvasTextId>;
 
 /// System running during the [`CoreStage::PostUpdate`] stage of the main app to process
 /// the glyphs of all texts of all [`Canvas`] components.
@@ -58,18 +62,21 @@ pub fn process_glyphs(
     mut font_queue: Local<HashSet<Entity>>,
     mut textures: ResMut<Assets<Image>>,
     fonts: Res<Assets<Font>>,
-    windows: Res<Windows>,
+    q_window: Query<&Window, With<PrimaryWindow>>,
     mut scale_factor_changed: EventReader<WindowScaleFactorChanged>,
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
     mut font_atlas_set_storage: ResMut<Assets<FontAtlasSet>>,
     mut text_pipeline: ResMut<KeithTextPipeline>,
     mut canvas_query: Query<(Entity, &mut Canvas)>,
+    text_settings: Res<TextSettings>,
+    mut font_atlas_warning: ResMut<FontAtlasWarning>,
 ) {
     // We need to consume the entire iterator, hence `last`
     let factor_changed = scale_factor_changed.iter().last().is_some();
 
     // TODO - handle multi-window
-    let scale_factor = windows.scale_factor(WindowId::primary());
+    let window = q_window.single();
+    let scale_factor = window.scale_factor();
     let inv_scale_factor = 1. / scale_factor;
 
     // Loop on all existing canvases
@@ -84,36 +91,37 @@ pub fn process_glyphs(
 
         // Loop on all texts for the current canvas
         for mut text in canvas.text_layouts_mut() {
-            let text_id = CanvasTextId::from_raw(entity, text.id);
-
             // Update the text glyphs, storing them into the font atlas(es) for later rendering
             match text_pipeline.queue_text(
-                text_id,
                 &fonts,
                 &text.sections,
                 scale_factor,
                 text.alignment,
+                BreakLineOn::WordBoundary,
                 text.bounds,
-                &mut *font_atlas_set_storage,
-                &mut *texture_atlases,
-                &mut *textures,
+                &mut font_atlas_set_storage,
+                &mut texture_atlases,
+                &mut textures,
+                text_settings.as_ref(),
+                &mut font_atlas_warning,
+                YAxisOrientation::BottomToTop,
             ) {
                 Err(TextError::NoSuchFont) => {
                     // There was an error looking for the text font, add the canvas entity to the
                     // queue for later re-try (next frame)
                     font_queue.insert(entity);
+
+                    text.layout_info = None;
                 }
                 Err(e @ TextError::FailedToAddGlyph(_)) => {
                     panic!("Fatal error when processing text: {}.", e);
                 }
-                Ok(()) => {
-                    let text_layout_info = text_pipeline.get_glyphs(&text_id).expect(
-                        "Failed to get glyphs from the pipeline that have just been computed",
-                    );
+                Ok(text_layout_info) => {
                     text.calculated_size = Vec2::new(
                         scale_value(text_layout_info.size.x, inv_scale_factor),
                         scale_value(text_layout_info.size.y, inv_scale_factor),
                     );
+                    text.layout_info = Some(text_layout_info);
                 }
             }
         }

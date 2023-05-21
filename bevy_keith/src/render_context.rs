@@ -1,10 +1,10 @@
 #![allow(unused_variables, dead_code, unused_imports)]
 
 use bevy::prelude::*;
+use bevy::text::TextLayoutInfo;
 use bevy::{
-    math::Vec2,
+    math::{Rect, Vec2},
     render::render_resource::Buffer,
-    sprite::Rect,
     text::Font,
     utils::{default, HashMap},
 };
@@ -80,7 +80,7 @@ impl TextStorage for &'static str {
 //     }
 // }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct TextLayout {
     /// Unique ID of the text into its owner [`Canvas`].
     pub(crate) id: u32,
@@ -92,6 +92,21 @@ pub struct TextLayout {
     pub(crate) bounds: Vec2,
     /// Calculated text size based on glyphs alone, updated by [`process_glyphs()`].
     pub(crate) calculated_size: Vec2,
+    /// Layout info calculated by the [`KeithTextPipeline`].
+    pub(crate) layout_info: Option<TextLayoutInfo>,
+}
+
+impl Default for TextLayout {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            sections: vec![],
+            alignment: TextAlignment::Left,
+            bounds: Vec2::ZERO,
+            calculated_size: Vec2::ZERO,
+            layout_info: None,
+        }
+    }
 }
 
 // impl piet::TextLayout for TextLayout {
@@ -142,10 +157,7 @@ impl<'c> TextLayoutBuilder<'c> {
             style: TextStyle::default(),
             value: storage.as_str().to_owned(),
             bounds: Vec2::new(f32::MAX, f32::MAX),
-            alignment: TextAlignment {
-                vertical: VerticalAlign::Bottom,
-                horizontal: HorizontalAlign::Left,
-            },
+            alignment: TextAlignment::Left, //Bottom,
         }
     }
 
@@ -162,7 +174,7 @@ impl<'c> TextLayoutBuilder<'c> {
     }
 
     /// Set the text color.
-    /// 
+    ///
     /// FIXME - this vs. RenderContext::draw_text()'s color
     pub fn color(mut self, color: Color) -> Self {
         self.style.color = color;
@@ -170,9 +182,9 @@ impl<'c> TextLayoutBuilder<'c> {
     }
 
     /// Set some bounds around the text.
-    /// 
+    ///
     /// The text will be formatted with line wrapping and clipped to fit in those bounds.
-    /// 
+    ///
     /// FIXME - Currently no clipping for partially visible glyphs, only completely outside
     /// ones are clipped.
     pub fn bounds(mut self, bounds: Vec2) -> Self {
@@ -187,7 +199,7 @@ impl<'c> TextLayoutBuilder<'c> {
     }
 
     /// Finalize the layout building and return the newly allocated text layout ID.
-    /// 
+    ///
     /// FIXME - Return CanvasTextId somehow, to ensure texts are not used cross-Canvas.
     pub fn build(self) -> u32 {
         let layout = TextLayout {
@@ -199,6 +211,7 @@ impl<'c> TextLayoutBuilder<'c> {
             alignment: self.alignment,
             bounds: self.bounds,
             calculated_size: Vec2::ZERO, // updated in process_glyphs()
+            layout_info: None,
         };
         self.canvas.finish_layout(layout)
     }
@@ -281,7 +294,7 @@ impl<'c> RenderContext<'c> {
     /// Create a new render context to draw on an existing canvas.
     pub fn new(canvas: &'c mut Canvas) -> Self {
         Self {
-            transform: Transform::identity(),
+            transform: Transform::IDENTITY,
             canvas,
         }
     }
@@ -380,7 +393,7 @@ impl<'c> RenderContext<'c> {
             color: Color::WHITE,
             flip_x: false,
             flip_y: false,
-            image: Some(image.id),
+            image: Some(image.id()),
         });
     }
 }

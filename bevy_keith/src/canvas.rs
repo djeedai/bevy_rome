@@ -4,11 +4,10 @@ use bevy::{
     asset::HandleId,
     ecs::{component::Component, reflect::ReflectComponent, system::Query},
     log::trace,
-    math::{Vec2, Vec3},
+    math::{Rect, Vec2, Vec3},
     prelude::OrthographicProjection,
     reflect::Reflect,
     render::color::Color,
-    sprite::Rect,
     utils::default,
 };
 
@@ -377,10 +376,7 @@ impl Canvas {
     /// Create a new canvas with dimensions calculated to cover the area of an orthographic
     /// projection.
     pub fn from_ortho(ortho: &OrthographicProjection) -> Self {
-        Self::new(Rect {
-            min: Vec2::new(ortho.left, ortho.top),
-            max: Vec2::new(ortho.right, ortho.bottom),
-        })
+        Self::new(ortho.area)
     }
 
     /// Change the dimensions of the canvas.
@@ -486,12 +482,8 @@ impl Canvas {
 /// Update the dimensions of any [`Canvas`] component attached to the same entity as
 /// as an [`OrthographicProjection`] component.
 pub fn update_canvas_from_ortho_camera(mut query: Query<(&mut Canvas, &OrthographicProjection)>) {
-    for (mut canvas, projection) in query.iter_mut() {
-        let proj_rect = Rect {
-            min: Vec2::new(projection.left, projection.bottom),
-            max: Vec2::new(projection.right, projection.top),
-        };
-        trace!("ortho canvas rect = {:?}", proj_rect);
-        canvas.set_rect(proj_rect);
+    for (mut canvas, ortho) in query.iter_mut() {
+        trace!("ortho canvas rect = {:?}", ortho.area);
+        canvas.set_rect(ortho.area);
     }
 }
