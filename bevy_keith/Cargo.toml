@@ -25,3 +25,7 @@ bevy-inspector-egui = "0.18"
 [[example]]
 name = "quad"
 required-features = [ "bevy/bevy_winit", "bevy/png" ]
+
+[[example]]
+name = "text"
+required-features = [ "bevy/bevy_winit", "bevy/png" ]

@@ -1,6 +1,8 @@
 #![allow(unused_variables, dead_code, unused_imports)]
 
+use bevy::math::Affine2;
 use bevy::prelude::*;
+use bevy::sprite::Anchor;
 use bevy::text::TextLayoutInfo;
 use bevy::{
     math::{Rect, Vec2},
@@ -63,29 +65,14 @@ impl TextStorage for &'static str {
 //     layouts: &'c Vec<TextLayout>,
 // }
 
-// impl<'c> Text<'c> {
-// }
-
-// impl piet::Text for Text {
-//     type TextLayoutBuilder = TextLayoutBuilder;
-//     type TextLayout = TextLayout;
-//     fn font_family(&mut self, family_name: &str) -> Option<piet::FontFamily> {
-//         unimplemented!()
-//     }
-//     fn load_font(&mut self, data: &[u8]) -> Result<piet::FontFamily, piet::Error> {
-//         unimplemented!()
-//     }
-//     fn new_text_layout(&mut self, text: impl piet::TextStorage) -> Self::TextLayoutBuilder {
-//         unimplemented!()
-//     }
-// }
-
 #[derive(Debug, Clone)]
 pub struct TextLayout {
     /// Unique ID of the text into its owner [`Canvas`].
     pub(crate) id: u32,
     /// Sections of text.
     pub(crate) sections: Vec<TextSection>,
+    /// Text anchor.
+    pub(crate) anchor: Anchor,
     /// Text alignment relative to its origin (render position).
     pub(crate) alignment: TextAlignment,
     /// Text bounds, used for glyph clipping.
@@ -101,6 +88,7 @@ impl Default for TextLayout {
         Self {
             id: 0,
             sections: vec![],
+            anchor: Anchor::default(),
             alignment: TextAlignment::Left,
             bounds: Vec2::ZERO,
             calculated_size: Vec2::ZERO,
@@ -109,44 +97,12 @@ impl Default for TextLayout {
     }
 }
 
-// impl piet::TextLayout for TextLayout {
-//     fn size(&self) -> Size {
-//         unimplemented!()
-//     }
-//     fn trailing_whitespace_width(&self) -> f64 {
-//         unimplemented!()
-//     }
-//     fn image_bounds(&self) -> KRect {
-//         unimplemented!()
-//     }
-//     fn text(&self) -> &str {
-//         unimplemented!()
-//     }
-//     fn line_text(&self, line_number: usize) -> Option<&str> {
-//         unimplemented!()
-//     }
-//     fn line_metric(&self, line_number: usize) -> Option<LineMetric> {
-//         unimplemented!()
-//     }
-//     fn line_count(&self) -> usize {
-//         unimplemented!()
-//     }
-//     fn hit_test_point(&self, point: Point) -> HitTestPoint {
-//         unimplemented!()
-//     }
-//     fn hit_test_text_position(&self, idx: usize) -> HitTestPosition {
-//         unimplemented!()
-//     }
-//     fn rects_for_range(&self, range: impl RangeBounds<usize>) -> Vec<KRect> {
-//         unimplemented!()
-//     }
-// }
-
 pub struct TextLayoutBuilder<'c> {
     canvas: &'c mut Canvas,
     style: TextStyle,
     value: String,
     bounds: Vec2,
+    anchor: Anchor,
     alignment: TextAlignment,
 }
 
@@ -157,6 +113,7 @@ impl<'c> TextLayoutBuilder<'c> {
             style: TextStyle::default(),
             value: storage.as_str().to_owned(),
             bounds: Vec2::new(f32::MAX, f32::MAX),
+            anchor: Anchor::default(),
             alignment: TextAlignment::Left, //Bottom,
         }
     }
@@ -192,6 +149,12 @@ impl<'c> TextLayoutBuilder<'c> {
         self
     }
 
+    /// Set the text anchor point.
+    pub fn anchor(mut self, anchor: Anchor) -> Self {
+        self.anchor = anchor;
+        self
+    }
+
     /// Set the text alignment relative to its render position.
     pub fn alignment(mut self, alignment: TextAlignment) -> Self {
         self.alignment = alignment;
@@ -208,6 +171,7 @@ impl<'c> TextLayoutBuilder<'c> {
                 style: self.style,
                 value: self.value,
             }],
+            anchor: self.anchor,
             alignment: self.alignment,
             bounds: self.bounds,
             calculated_size: Vec2::ZERO, // updated in process_glyphs()
@@ -216,35 +180,6 @@ impl<'c> TextLayoutBuilder<'c> {
         self.canvas.finish_layout(layout)
     }
 }
-
-// impl piet::TextLayoutBuilder for TextLayoutBuilder {
-//     type Out = TextLayout;
-//     fn max_width(self, width: f64) -> Self {
-//         unimplemented!()
-//     }
-//     fn alignment(self, alignment: piet::TextAlignment) -> Self {
-//         unimplemented!()
-//     }
-//     fn default_attribute(self, attribute: impl Into<piet::TextAttribute>) -> Self {
-//         unimplemented!()
-//     }
-//     fn range_attribute(
-//         self,
-//         range: impl RangeBounds<usize>,
-//         attribute: impl Into<piet::TextAttribute>,
-//     ) -> Self {
-//         unimplemented!()
-//     }
-//     fn build(self) -> Result<Self::Out, piet::Error> {
-//         unimplemented!()
-//     }
-//     fn font(self, font: piet::FontFamily, font_size: f64) -> Self {
-//         unimplemented!()
-//     }
-//     fn text_color(self, color: Color) -> Self {
-//         unimplemented!()
-//     }
-// }
 
 #[derive(Debug, Default, Clone)]
 pub struct BevyImage {
@@ -277,16 +212,11 @@ pub struct BevyImage {
 //     }
 // }
 
-// impl piet::Image for BevyImage {
-//     fn size(&self) -> Size {
-//         let size = self.image.size().to_array();
-//         Size::new(size[0] as f64, size[1] as f64)
-//     }
-// }
-
 #[derive(Debug)]
 pub struct RenderContext<'c> {
-    transform: Transform, // TODO -- 2D affine transform only...
+    /// Transform applied to all operations on this render context.
+    transform: Affine2,
+    /// Underlying canvas render operations are directed to.
     canvas: &'c mut Canvas,
 }
 
@@ -294,7 +224,7 @@ impl<'c> RenderContext<'c> {
     /// Create a new render context to draw on an existing canvas.
     pub fn new(canvas: &'c mut Canvas) -> Self {
         Self {
-            transform: Transform::IDENTITY,
+            transform: Affine2::IDENTITY,
             canvas,
         }
     }
@@ -403,161 +333,3 @@ impl<'c> Drop for RenderContext<'c> {
         self.canvas.finish();
     }
 }
-
-// impl<'c> piet::RenderContext for RenderContext<'c> {
-//     type Brush = Brush;
-//     type Text = Text;
-//     type TextLayout = TextLayout;
-//     type Image = BevyImage;
-
-//     fn status(&mut self) -> Result<(), piet::Error> {
-//         Ok(())
-//     }
-
-//     fn solid_brush(&mut self, color: Color) -> Self::Brush {
-//         Brush { color }
-//     }
-
-//     fn gradient(&mut self, gradient: impl Into<FixedGradient>) -> Result<Self::Brush, piet::Error> {
-//         unimplemented!()
-//     }
-
-//     fn clear(&mut self, region: impl Into<Option<kurbo::Rect>>, color: Color) {
-//         if let Some(rect) = region.into() {
-//             // TODO - delete primitives covered by region
-//             self.fill(rect, &color);
-//         } else {
-//             self.canvas.clear();
-//             self.fill(KRect::from_sprite(self.canvas.rect()), &color);
-//         }
-//     }
-
-//     fn stroke(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>, width: f64) {
-//         let brush = brush.make_brush(self, || shape.bounding_box());
-//         let color = brush.color().as_rgba();
-//         if let Some(line) = shape.as_line() {
-//             self.canvas.lines.push(crate::piet_canvas::Line {
-//                 start: Vec2::new(line.p0.x as f32, line.p0.y as f32),
-//                 end: Vec2::new(line.p1.x as f32, line.p1.y as f32),
-//                 color: bevy::render::color::Color::rgba_linear(
-//                     color.0 as f32,
-//                     color.1 as f32,
-//                     color.2 as f32,
-//                     color.3 as f32,
-//                 ),
-//                 thickness: width as f32,
-//             });
-//         }
-//     }
-
-//     fn stroke_styled(
-//         &mut self,
-//         shape: impl Shape,
-//         brush: &impl IntoBrush<Self>,
-//         width: f64,
-//         style: &piet::StrokeStyle,
-//     ) {
-//         unimplemented!()
-//     }
-
-//     fn fill(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
-//         let brush = brush.make_brush(self, || shape.bounding_box());
-//         let color = brush.color().as_rgba();
-//         if let Some(rect) = shape.as_rect() {
-//             self.canvas.quads_vec().push(Quad {
-//                 rect: SRect {
-//                     min: Vec2::new(rect.x0 as f32, rect.y0 as f32),
-//                     max: Vec2::new(rect.x1 as f32, rect.y1 as f32),
-//                 },
-//                 color: bevy::render::color::Color::rgba_linear(
-//                     color.0 as f32,
-//                     color.1 as f32,
-//                     color.2 as f32,
-//                     color.3 as f32,
-//                 ),
-//                 flip_x: false,
-//                 flip_y: false,
-//             });
-//         } else if let Some(line) = shape.as_line() {
-//             // nothing to do; cannot "fill" a line, only stroke it
-//         } else {
-//             unimplemented!()
-//         }
-//     }
-
-//     fn fill_even_odd(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
-//         unimplemented!()
-//     }
-
-//     fn clip(&mut self, shape: impl Shape) {
-//         unimplemented!()
-//     }
-
-//     fn text(&mut self) -> &mut Self::Text {
-//         &mut self.text
-//     }
-
-//     fn draw_text(&mut self, layout: &Self::TextLayout, pos: impl Into<Point>) {
-//         unimplemented!()
-//     }
-
-//     fn save(&mut self) -> Result<(), piet::Error> {
-//         unimplemented!()
-//     }
-
-//     fn restore(&mut self) -> Result<(), piet::Error> {
-//         unimplemented!()
-//     }
-
-//     fn finish(&mut self) -> Result<(), piet::Error> {
-//         unimplemented!()
-//     }
-
-//     fn transform(&mut self, transform: Affine) {
-//         unimplemented!()
-//     }
-
-//     fn current_transform(&self) -> Affine {
-//         self.transform
-//     }
-
-//     fn make_image(
-//         &mut self,
-//         width: usize,
-//         height: usize,
-//         buf: &[u8],
-//         format: piet::ImageFormat,
-//     ) -> Result<Self::Image, piet::Error> {
-//         Ok(BevyImage::new(width, height, buf, format))
-//     }
-
-//     fn draw_image(
-//         &mut self,
-//         image: &Self::Image,
-//         dst_rect: impl Into<KRect>,
-//         interp: piet::InterpolationMode,
-//     ) {
-//         unimplemented!()
-//     }
-
-//     fn draw_image_area(
-//         &mut self,
-//         image: &Self::Image,
-//         src_rect: impl Into<KRect>,
-//         dst_rect: impl Into<KRect>,
-//         interp: piet::InterpolationMode,
-//     ) {
-//         unimplemented!()
-//     }
-
-//     fn capture_image_area(
-//         &mut self,
-//         src_rect: impl Into<KRect>,
-//     ) -> Result<Self::Image, piet::Error> {
-//         unimplemented!()
-//     }
-
-//     fn blurred_rect(&mut self, rect: KRect, blur_radius: f64, brush: &impl IntoBrush<Self>) {
-//         unimplemented!()
-//     }
-// }

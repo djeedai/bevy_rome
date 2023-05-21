@@ -71,6 +71,8 @@ pub fn process_glyphs(
     text_settings: Res<TextSettings>,
     mut font_atlas_warning: ResMut<FontAtlasWarning>,
 ) {
+    trace!("process_glyphs");
+
     // We need to consume the entire iterator, hence `last`
     let factor_changed = scale_factor_changed.iter().last().is_some();
 
@@ -92,19 +94,26 @@ pub fn process_glyphs(
         // Loop on all texts for the current canvas
         for mut text in canvas.text_layouts_mut() {
             // Update the text glyphs, storing them into the font atlas(es) for later rendering
+            trace!(
+                "Queue text: id={} anchor={:?} alignment={:?} bounds={:?}",
+                text.id,
+                text.anchor,
+                text.alignment,
+                text.bounds
+            );
             match text_pipeline.queue_text(
                 &fonts,
                 &text.sections,
                 scale_factor,
                 text.alignment,
-                BreakLineOn::WordBoundary,
-                text.bounds,
+                BreakLineOn::WordBoundary, // TODO - configurable
+                text.bounds * scale_factor as f32,
                 &mut font_atlas_set_storage,
                 &mut texture_atlases,
                 &mut textures,
                 text_settings.as_ref(),
                 &mut font_atlas_warning,
-                YAxisOrientation::BottomToTop,
+                YAxisOrientation::BottomToTop, // TODO - configurable
             ) {
                 Err(TextError::NoSuchFont) => {
                     // There was an error looking for the text font, add the canvas entity to the

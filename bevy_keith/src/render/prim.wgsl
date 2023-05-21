@@ -120,18 +120,18 @@ fn load_line(offset: u32) -> Line {
 fn vertex(
     @builtin(vertex_index) vertex_index: u32,
 ) -> VertexOutput {
-    var prim = unpack_index(vertex_index);
+    let prim = unpack_index(vertex_index);
     var out: VertexOutput;
     var vertex_position: vec2<f32>;
     if (prim.kind <= 1u) { // RECT or GLYPH
-        var rect = load_rect(prim.offset);
+        let rect = load_rect(prim.offset);
         vertex_position = rect.pos + rect.size * prim.corner;
         out.color = rect.color;
 #ifdef TEXTURED
         out.uv = rect.uv_pos + rect.uv_size * prim.corner;
 #endif
     } else if (prim.kind == 2u) { // LINE
-        var lin = load_line(prim.offset);
+        let lin = load_line(prim.offset);
         vertex_position = lin.origin + lin.dir * prim.corner.x + lin.normal * ((prim.corner.y - 0.5) * lin.thickness);
         out.color = lin.color;
     }

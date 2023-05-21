@@ -638,34 +638,24 @@ pub(crate) fn extract_primitives(
             let text_id = CanvasTextId::from_raw(entity, text.id);
             trace!("Extracting text {:?}...", text_id);
 
-            if let Some(text_layout) = &text.layout_info {
-                let width = text_layout.size.x * inv_scale_factor;
-                let height = text_layout.size.y * inv_scale_factor;
+            if let Some(text_layout_info) = &text.layout_info {
+                let width = text_layout_info.size.x * inv_scale_factor;
+                let height = text_layout_info.size.y * inv_scale_factor;
+
+                let text_anchor = -(text.anchor.as_vec() + 0.5);
+                let alignment_translation = text_layout_info.size * text_anchor;
 
                 trace!(
-                    "-> {} glyphs, w={} h={} scale={}",
-                    text_layout.glyphs.len(),
+                    "-> {} glyphs, w={} h={} scale={} alignment_translation={:?}",
+                    text_layout_info.glyphs.len(),
                     width,
                     height,
-                    scale_factor
+                    scale_factor,
+                    alignment_translation
                 );
 
-                let alignment_offset = match text.alignment {
-                    TextAlignment::Left => Vec2::ZERO,
-                    TextAlignment::Center => Vec2::new(-width * 0.5, 0.0),
-                    TextAlignment::Right => Vec2::new(-width, 0.0),
-                };
-                //  + match text.alignment.vertical {
-                //     VerticalAlign::Top => Vec2::new(0.0, -height),
-                //     VerticalAlign::Center => Vec2::new(0.0, -height * 0.5),
-                //     VerticalAlign::Bottom => Vec2::ZERO,
-                // };
-
-                // let mut text_transform = extracted_canvas.transform;
-                // text_transform.scale *= inv_scale_factor;
-
                 let mut extracted_glyphs = vec![];
-                for text_glyph in &text_layout.glyphs {
+                for text_glyph in &text_layout_info.glyphs {
                     trace!(
                         "glyph: position={:?} size={:?}",
                         text_glyph.position,
@@ -682,7 +672,7 @@ pub(crate) fn extract_primitives(
                     let index = text_glyph.atlas_info.glyph_index as usize;
                     let uv_rect = atlas.textures[index];
 
-                    let glyph_offset = alignment_offset * scale_factor + text_glyph.position;
+                    let glyph_offset = alignment_translation + text_glyph.position;
 
                     extracted_glyphs.push(ExtractedGlyph {
                         offset: glyph_offset,

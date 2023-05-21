@@ -274,7 +274,9 @@ pub struct TextPrimitive {
 }
 
 impl TextPrimitive {
+    /// Number of elements used by each single glyph in the primitive element buffer.
     pub const ROW_PER_GLYPH: u32 = 9;
+    /// Number of indices used by each single glyph in the primitive index buffer.
     pub const INDEX_PER_GLYPH: u32 = 6;
 }
 
