@@ -170,11 +170,20 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
         );
     }
 
-    let brush = ctx.solid_brush(Color::rgb(0.6, 0.6, 0.6));
+    // Rounded rect with border
     let rect = Rect::from_center_size(Vec2::new(300., 200.), Vec2::new(80., 40.));
-    ctx.rfill(rect, 5., &brush);
     let brush = ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7));
-    ctx.rfill(rect.inset(-1.), 4., &brush);
+    let rrect = RoundedRect {
+        rect,
+        radii: Vec2::splat(4.),
+    };
+    ctx.fill(rrect, &brush);
+    let brush = ctx.solid_brush(Color::rgb(0.6, 0.6, 0.6));
+    let rrect = RoundedRect {
+        rect: rect.inset(0.5),
+        radii: Vec2::splat(4.5),
+    };
+    ctx.stroke(rrect, &brush, 1.);
 
     // Buttons
     let rect = Rect {

@@ -3,6 +3,7 @@
 mod canvas;
 mod render;
 mod render_context;
+mod shapes;
 mod text;
 
 pub mod prelude {
@@ -20,6 +21,7 @@ use render::{
 
 pub use canvas::{Canvas, Primitive};
 pub use render_context::RenderContext;
+pub use shapes::*;
 pub use text::{CanvasTextId, KeithTextPipeline};
 
 use bevy::asset::{Assets, HandleUntyped};
