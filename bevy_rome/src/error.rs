@@ -14,3 +14,9 @@ impl From<ron::Error> for Error {
         Error::Unknown // TODO
     }
 }
+
+impl From<ron::error::SpannedError> for Error {
+    fn from(err: ron::error::SpannedError) -> Self {
+        Error::Unknown // TODO
+    }
+}

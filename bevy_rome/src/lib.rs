@@ -1,12 +1,16 @@
 #![allow(dead_code, unused_imports, unused_variables, unused_mut)] // temp
 
-use bevy::ecs::{world::{Mut, World}, entity::Entity, component::{Component, ComponentId}};
+use bevy::ecs::{
+    component::{Component, ComponentId},
+    entity::Entity,
+    world::{Mut, World},
+};
 use bevy::math::Vec3;
 use bevy::transform::components::Transform;
 use serde::{Deserialize, Serialize, Serializer};
+use std::any::{Any, TypeId};
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
-use std::any::{Any, TypeId};
 
 mod diff;
 mod error;
@@ -38,7 +42,7 @@ struct SendQueue<W: Write> {
 
 impl<W: Write> SendQueue<W> {
     pub fn new(writer: W) -> Self {
-        let serializer = ron::ser::Serializer::new(writer, None, false).unwrap();
+        let serializer = ron::ser::Serializer::new(writer, None).unwrap();
         Self { serializer }
     }
 
@@ -56,9 +60,7 @@ impl RecvQueue {
     }
 
     pub fn recv<'de, T, M: Message<'de, T>>(&mut self, bytes: &'de [u8]) -> Result<M, Error> {
-        let mut deserializer = ron::de::Deserializer::from_bytes(bytes)?;
-        let msg = M::deserialize(&mut deserializer)?;
-        Ok(msg)
+        ron::de::from_bytes::<M>(bytes).map_err(Into::into)
     }
 }
 
@@ -81,12 +83,10 @@ mod tests {
                 }
             };
             let mut queue = RecvQueue::new();
-            let mut buf : [u8; 1024] = [0; 1024];
+            let mut buf: [u8; 1024] = [0; 1024];
             let len = stream.read(&mut buf).unwrap();
 
-
             //TODO - need to decode the message type first!!!!
-
 
             //let msg = queue.recv(&buf[..len]);
         });
