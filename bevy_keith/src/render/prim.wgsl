@@ -23,8 +23,9 @@ var quad_sampler: sampler;
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
+    @location(1) radii: vec2<f32>,
 #ifdef TEXTURED
-    @location(1) uv: vec2<f32>,
+    @location(2) uv: vec2<f32>,
 #endif
 };
 
@@ -47,6 +48,12 @@ struct Rect {
     uv_pos: vec2<f32>,
     uv_size: vec2<f32>,
 #endif
+};
+
+struct QPie {
+    origin: vec2<f32>,
+    radii: vec2<f32>,
+    color: vec4<f32>,
 };
 
 struct Line {
@@ -105,8 +112,8 @@ fn load_line(offset: u32) -> Line {
     let c = primitives.elems[offset + 4u];
     let t = primitives.elems[offset + 5u];
     var lin: Line;
-    var p0 = vec2<f32>(p0x, p0y);
-    var p1 = vec2<f32>(p1x, p1y);
+    let p0 = vec2<f32>(p0x, p0y);
+    let p1 = vec2<f32>(p1x, p1y);
     lin.origin = p0;
     lin.dir = p1 - p0;
     lin.normal = normalize(vec2<f32>(-lin.dir.y, lin.dir.x));
@@ -116,12 +123,27 @@ fn load_line(offset: u32) -> Line {
     return lin;
 }
 
+fn load_qpie(offset: u32) -> QPie {
+    let x = primitives.elems[offset];
+    let y = primitives.elems[offset + 1u];
+    let rx = primitives.elems[offset + 2u];
+    let ry = primitives.elems[offset + 3u];
+    let c = primitives.elems[offset + 4u];
+    var qpie: QPie;
+    qpie.origin = vec2<f32>(x, y);
+    qpie.radii = vec2<f32>(rx, ry);
+    let uc: u32 = bitcast<u32>(c);
+    qpie.color = unpack4x8unorm(uc);
+    return qpie;
+}
+
 @vertex
 fn vertex(
     @builtin(vertex_index) vertex_index: u32,
 ) -> VertexOutput {
     let prim = unpack_index(vertex_index);
     var out: VertexOutput;
+    out.radii = vec2<f32>(0.);
     var vertex_position: vec2<f32>;
     if (prim.kind <= 1u) { // RECT or GLYPH
         let rect = load_rect(prim.offset);
@@ -134,6 +156,12 @@ fn vertex(
         let lin = load_line(prim.offset);
         vertex_position = lin.origin + lin.dir * prim.corner.x + lin.normal * ((prim.corner.y - 0.5) * lin.thickness);
         out.color = lin.color;
+    } else if (prim.kind == 3u) { // QUARTER PIE
+        let qpie = load_qpie(prim.offset);
+        vertex_position = qpie.origin + qpie.radii * prim.corner;
+        out.radii = prim.corner; //abs(qpie.radii);
+        //out.color = vec4<f32>(prim.corner, 0., 1.); // TEMP - for debugging //qpie.color;
+        out.color = qpie.color;
     }
     out.position = view.view_proj * vec4<f32>(vertex_position, 0.0, 1.0);
     return out;
@@ -143,8 +171,16 @@ fn vertex(
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var color = in.color;
 #ifdef TEXTURED
-    var rgba = textureSample(quad_texture, quad_sampler, in.uv);
+    let rgba = textureSample(quad_texture, quad_sampler, in.uv);
     color = color * rgba;
 #endif
+    if (in.radii.x > 0.) {
+        let eps = 0.1;
+        let r2 = 1. - dot(in.radii, in.radii);
+        //color = vec4<f32>(r2, r2, r2, 1.);
+        let r = smoothstep(0., 1., (r2 + eps) / (2. * eps));
+        //color = vec4<f32>(r, r, r, 1.);
+        color.a = color.a * r;
+    }
     return color;
 }

@@ -5,7 +5,7 @@ use bevy::{
     ecs::{component::Component, reflect::ReflectComponent, system::Query},
     log::trace,
     math::{Rect, Vec2, Vec3},
-    prelude::OrthographicProjection,
+    prelude::{BVec2, OrthographicProjection},
     reflect::Reflect,
     render::color::Color,
     utils::default,
@@ -55,6 +55,8 @@ enum GpuPrimitiveKind {
     Glyph = 1,
     /// Line segment.
     Line = 2,
+    /// Quarter pie.
+    QuarterPie = 3,
 }
 
 /// Encoded vertex index passed to the GPU shader.
@@ -95,6 +97,7 @@ pub enum Primitive {
     Line(LinePrimitive),
     Rect(RectPrimitive),
     Text(TextPrimitive),
+    QuarterPie(QuarterPiePrimitive),
 }
 
 impl From<LinePrimitive> for Primitive {
@@ -115,12 +118,19 @@ impl From<TextPrimitive> for Primitive {
     }
 }
 
+impl From<QuarterPiePrimitive> for Primitive {
+    fn from(qpie: QuarterPiePrimitive) -> Self {
+        Self::QuarterPie(qpie)
+    }
+}
+
 impl PrimImpl for Primitive {
     fn info(&self, texts: &[ExtractedText]) -> PrimitiveInfo {
         match &self {
             Primitive::Line(l) => l.info(texts),
             Primitive::Rect(r) => r.info(texts),
             Primitive::Text(t) => t.info(texts),
+            Primitive::QuarterPie(q) => q.info(texts),
         }
     }
 
@@ -136,6 +146,7 @@ impl PrimImpl for Primitive {
             Primitive::Line(l) => l.write(texts, prim, offset, idx, scale_factor),
             Primitive::Rect(r) => r.write(texts, prim, offset, idx, scale_factor),
             Primitive::Text(t) => t.write(texts, prim, offset, idx, scale_factor),
+            Primitive::QuarterPie(q) => q.write(texts, prim, offset, idx, scale_factor),
         };
     }
 }
@@ -344,6 +355,82 @@ impl PrimImpl for TextPrimitive {
             }
             ii += Self::INDEX_PER_GLYPH as usize;
             base_index += Self::ROW_PER_GLYPH;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct QuarterPiePrimitive {
+    /// Origin of the pie.
+    pub origin: Vec2,
+    /// Radii of the (elliptical) pie.
+    pub radii: Vec2,
+    /// Uniform rectangle color.
+    pub color: Color,
+    /// Flip the quarter pie along the horizontal axis.
+    pub flip_x: bool,
+    /// Flip the quarter pie along the vertical axis.
+    pub flip_y: bool,
+}
+
+impl Default for QuarterPiePrimitive {
+    fn default() -> Self {
+        Self {
+            origin: Vec2::ZERO,
+            radii: Vec2::ONE,
+            color: Color::default(),
+            flip_x: false,
+            flip_y: false,
+        }
+    }
+}
+
+impl QuarterPiePrimitive {
+    /// Number of primitive buffer rows (4 bytes) per primitive.
+    const ROW_COUNT: u32 = 5;
+
+    /// Number of indices per primitive (2 triangles).
+    const INDEX_COUNT: u32 = 6;
+
+    /// The pie center.
+    pub fn center(&self) -> Vec3 {
+        self.origin.extend(0.)
+    }
+
+    #[inline]
+    const fn row_count(&self) -> u32 {
+        Self::ROW_COUNT
+    }
+}
+
+impl PrimImpl for QuarterPiePrimitive {
+    fn info(&self, _texts: &[ExtractedText]) -> PrimitiveInfo {
+        PrimitiveInfo {
+            row_count: self.row_count(),
+            index_count: Self::INDEX_COUNT,
+        }
+    }
+
+    fn write(
+        &self,
+        _texts: &[ExtractedText],
+        prim: &mut [MaybeUninit<f32>],
+        base_index: u32,
+        idx: &mut [MaybeUninit<u32>],
+        _scale_factor: f32,
+    ) {
+        assert_eq!(self.row_count() as usize, prim.len());
+        let radii_mask = BVec2::new(self.flip_x, self.flip_y);
+        let signed_radii = Vec2::select(radii_mask, -self.radii, self.radii);
+        prim[0].write(self.origin.x);
+        prim[1].write(self.origin.y);
+        prim[2].write(signed_radii.x);
+        prim[3].write(signed_radii.y);
+        prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
+        assert_eq!(6, idx.len());
+        for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
+            let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::QuarterPie, 0);
+            idx[i].write(index.raw());
         }
     }
 }

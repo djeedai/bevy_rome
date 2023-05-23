@@ -12,7 +12,9 @@ use bevy::{
 };
 use std::{ops::RangeBounds, str, sync::Arc};
 
-use crate::canvas::{Canvas, LinePrimitive, Primitive, RectPrimitive, TextPrimitive};
+use crate::canvas::{
+    Canvas, LinePrimitive, Primitive, QuarterPiePrimitive, RectPrimitive, TextPrimitive,
+};
 use crate::CanvasTextId;
 
 #[derive(Debug, Clone)]
@@ -255,6 +257,97 @@ impl<'c> RenderContext<'c> {
             flip_x: false,
             flip_y: false,
             image: None,
+        });
+    }
+
+    /// Fill a shape with a given brush.
+    pub fn rfill(&mut self, shape: Rect, radius: f32, brush: &Brush) {
+        if radius <= 0. {
+            self.fill(shape, brush);
+            return;
+        }
+
+        let h = shape.half_size();
+        let radius = radius.min(h.x).min(h.y);
+
+        // Top
+        self.canvas.draw(RectPrimitive {
+            rect: Rect::new(
+                shape.min.x + radius,
+                shape.max.y - radius,
+                shape.max.x - radius,
+                shape.max.y,
+            ),
+            color: brush.color(),
+            flip_x: false,
+            flip_y: false,
+            image: None,
+        });
+
+        // Center (including left/right sides)
+        self.canvas.draw(RectPrimitive {
+            rect: Rect::new(
+                shape.min.x,
+                shape.min.y + radius,
+                shape.max.x,
+                shape.max.y - radius,
+            ),
+            color: brush.color(),
+            flip_x: false,
+            flip_y: false,
+            image: None,
+        });
+
+        // Bottom
+        self.canvas.draw(RectPrimitive {
+            rect: Rect::new(
+                shape.min.x + radius,
+                shape.min.y,
+                shape.max.x - radius,
+                shape.min.y + radius,
+            ),
+            color: brush.color(),
+            flip_x: false,
+            flip_y: false,
+            image: None,
+        });
+
+        let radii = Vec2::splat(radius);
+
+        // Top-left corner
+        self.canvas.draw(QuarterPiePrimitive {
+            origin: Vec2::new(shape.min.x + radius, shape.max.y - radius),
+            radii,
+            color: brush.color(),
+            flip_x: true,
+            flip_y: false,
+        });
+
+        // Top-right corner
+        self.canvas.draw(QuarterPiePrimitive {
+            origin: shape.max - radius,
+            radii,
+            color: brush.color(),
+            flip_x: false,
+            flip_y: false,
+        });
+
+        // Bottom-left corner
+        self.canvas.draw(QuarterPiePrimitive {
+            origin: shape.min + radius,
+            radii,
+            color: brush.color(),
+            flip_x: true,
+            flip_y: true,
+        });
+
+        // Bottom-right corner
+        self.canvas.draw(QuarterPiePrimitive {
+            origin: Vec2::new(shape.max.x - radius, shape.min.y + radius),
+            radii,
+            color: brush.color(),
+            flip_x: false,
+            flip_y: true,
         });
     }
 
