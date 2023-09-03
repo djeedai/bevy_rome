@@ -14,13 +14,13 @@ readme = "README.md"
 exclude = ["examples/*.gif", ".github", "release.md"]
 
 [dependencies]
-bevy = { version = "0.10", default-features = false, features = ["bevy_asset", "bevy_core_pipeline", "bevy_render", "bevy_text", "bevy_sprite"] }
+bevy = { version = "0.11", default-features = false, features = ["bevy_asset", "bevy_core_pipeline", "bevy_render", "bevy_text", "bevy_sprite"] }
 bytemuck = { version = "1.13", features = ["derive"] }
 bitflags = "2.3"
 copyless = "0.1.5"
 
 #[dev-dependencies]
-bevy-inspector-egui = "0.18"
+bevy-inspector-egui = "0.19"
 
 [[example]]
 name = "quad"

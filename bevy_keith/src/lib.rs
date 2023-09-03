@@ -12,7 +12,7 @@ pub mod prelude {
 }
 
 use bevy::prelude::*;
-use bevy::render::RenderSet;
+use bevy::render::{Render, RenderSet};
 use bevy::sprite::SpriteSystem;
 use render::{
     DrawPrimitive, ExtractedCanvases, ImageBindGroups, PrimitiveAssetEvents, PrimitiveMeta,
@@ -50,17 +50,14 @@ pub enum KeithSystem {
 impl Plugin for KeithPlugin {
     fn build(&self, app: &mut App) {
         let mut shaders = app.world.resource_mut::<Assets<Shader>>();
-        let primitives_shader = Shader::from_wgsl(include_str!("render/prim.wgsl"));
+        let primitives_shader =
+            Shader::from_wgsl(include_str!("render/prim.wgsl"), "bevy_keith/prim.wgsl");
         shaders.set_untracked(PRIMITIVE_SHADER_HANDLE, primitives_shader);
 
         app.register_type::<Canvas>()
             .init_resource::<KeithTextPipeline>()
-            .add_system(canvas::update_canvas_from_ortho_camera.in_base_set(CoreSet::PreUpdate))
-            .add_system(
-                text::process_glyphs
-                    //.label(KeithSystem::ProcessTextGlyphs)
-                    .in_base_set(CoreSet::PostUpdate),
-            ); //.after(ModifiesWindows),
+            .add_systems(PreUpdate, canvas::update_canvas_from_ortho_camera)
+            .add_systems(PostUpdate, text::process_glyphs); //.after(ModifiesWindows),
 
         if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
@@ -71,17 +68,22 @@ impl Plugin for KeithPlugin {
                 .init_resource::<ExtractedCanvases>()
                 .init_resource::<PrimitiveAssetEvents>()
                 .add_render_command::<Transparent2d, DrawPrimitive>()
-                .add_system(
-                    // Must be after VisibilityPropagate, which is in CoreSet::PostUpdate, so render's extract is OK
-                    render::extract_primitives
-                        .in_set(KeithSystem::ExtractPrimitives)
-                        .after(SpriteSystem::ExtractSprites) // for TextureAtlas
-                        .in_schedule(ExtractSchedule),
+                .configure_set(ExtractSchedule, KeithSystem::ExtractPrimitives)
+                .edit_schedule(ExtractSchedule, |schedule| {
+                    schedule.add_systems(
+                        (
+                            render::extract_primitives,
+                            render::extract_primitive_events, /*, text::extract_text_primitives*/
+                        )
+                            .in_set(KeithSystem::ExtractPrimitives)
+                            .after(SpriteSystem::ExtractSprites),
+                    );
+                })
+                .add_systems(
+                    Render,
+                    render::prepare_primitives.in_set(RenderSet::Prepare),
                 )
-                .add_system(render::extract_primitive_events.in_schedule(ExtractSchedule))
-                //.add_system(text::extract_text_primitives.in_schedule(ExtractSchedule))
-                .add_system(render::prepare_primitives.in_set(RenderSet::Prepare))
-                .add_system(render::queue_primitives.in_set(RenderSet::Queue));
+                .add_systems(Render, render::queue_primitives.in_set(RenderSet::Queue));
         };
     }
 }
