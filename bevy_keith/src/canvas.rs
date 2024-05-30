@@ -1,13 +1,13 @@
 use std::mem::MaybeUninit;
 
 use bevy::{
-    asset::HandleId,
+    asset::AssetId,
     ecs::{component::Component, reflect::ReflectComponent, system::Query},
     log::trace,
     math::{Rect, Vec2, Vec3},
     prelude::{BVec2, OrthographicProjection},
     reflect::Reflect,
-    render::color::Color,
+    render::{color::Color, texture::Image},
     utils::default,
 };
 
@@ -202,7 +202,7 @@ pub struct RectPrimitive {
     pub flip_y: bool,
     /// Optional handle to the image used for texturing the rectangle.
     /// This uses `HandleId` to retain the `Copy` trait.
-    pub image: Option<HandleId>, // Handle<Image>
+    pub image: Option<AssetId<Image>>, // Handle<Image>
 }
 
 impl Default for RectPrimitive {

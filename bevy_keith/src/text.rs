@@ -8,10 +8,8 @@ use bevy::{
     math::Vec2,
     prelude::*,
     render::texture::Image,
-    sprite::TextureAtlas,
     text::{
-        BreakLineOn, Font, FontAtlasSet, FontAtlasWarning, TextError, TextPipeline, TextSettings,
-        YAxisOrientation,
+        BreakLineOn, Font, FontAtlasSets, TextError, TextPipeline, TextSettings, YAxisOrientation,
     },
     utils::HashSet,
     window::{PrimaryWindow, Window, WindowScaleFactorChanged},
@@ -64,21 +62,22 @@ pub fn process_glyphs(
     fonts: Res<Assets<Font>>,
     q_window: Query<&Window, With<PrimaryWindow>>,
     mut scale_factor_changed: EventReader<WindowScaleFactorChanged>,
-    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
-    mut font_atlas_set_storage: ResMut<Assets<FontAtlasSet>>,
+    mut texture_atlases: ResMut<Assets<TextureAtlasLayout>>,
+    mut font_atlas_set_storage: ResMut<FontAtlasSets>,
     mut text_pipeline: ResMut<KeithTextPipeline>,
     mut canvas_query: Query<(Entity, &mut Canvas)>,
     text_settings: Res<TextSettings>,
-    mut font_atlas_warning: ResMut<FontAtlasWarning>,
 ) {
     trace!("process_glyphs");
 
     // We need to consume the entire iterator, hence `last`
-    let factor_changed = scale_factor_changed.iter().last().is_some();
+    let factor_changed = scale_factor_changed.read().last().is_some();
 
     // TODO - handle multi-window
-    let Ok(window) = q_window.get_single() else { return; };
-    let scale_factor = window.scale_factor();
+    let Ok(window) = q_window.get_single() else {
+        return;
+    };
+    let scale_factor = window.scale_factor() as f64;
     let inv_scale_factor = 1. / scale_factor;
 
     // Loop on all existing canvases
@@ -92,7 +91,7 @@ pub fn process_glyphs(
         }
 
         // Loop on all texts for the current canvas
-        for mut text in canvas.text_layouts_mut() {
+        for text in canvas.text_layouts_mut() {
             // Update the text glyphs, storing them into the font atlas(es) for later rendering
             trace!(
                 "Queue text: id={} anchor={:?} alignment={:?} bounds={:?}",
@@ -104,7 +103,7 @@ pub fn process_glyphs(
             match text_pipeline.queue_text(
                 &fonts,
                 &text.sections,
-                scale_factor,
+                scale_factor as f32,
                 text.alignment,
                 BreakLineOn::WordBoundary, // TODO - configurable
                 text.bounds * scale_factor as f32,
@@ -112,7 +111,6 @@ pub fn process_glyphs(
                 &mut texture_atlases,
                 &mut textures,
                 text_settings.as_ref(),
-                &mut font_atlas_warning,
                 YAxisOrientation::BottomToTop, // TODO - configurable
             ) {
                 Err(TextError::NoSuchFont) => {
@@ -127,8 +125,8 @@ pub fn process_glyphs(
                 }
                 Ok(text_layout_info) => {
                     text.calculated_size = Vec2::new(
-                        scale_value(text_layout_info.size.x, inv_scale_factor),
-                        scale_value(text_layout_info.size.y, inv_scale_factor),
+                        scale_value(text_layout_info.logical_size.x, inv_scale_factor),
+                        scale_value(text_layout_info.logical_size.y, inv_scale_factor),
                     );
                     text.layout_info = Some(text_layout_info);
                 }

@@ -1,11 +1,12 @@
 use std::{fmt::Write, ops::Range};
 
 use bevy::{
-    asset::{Asset, AssetEvent, Handle, HandleId},
+    asset::{Asset, AssetEvent, AssetId},
     core_pipeline::core_2d::Transparent2d,
     ecs::{
         component::Component,
         entity::Entity,
+        query::ROQueryItem,
         system::{
             lifetimeless::{Read, SRes},
             Commands, Query, Res, ResMut, SystemParamItem,
@@ -13,22 +14,20 @@ use bevy::{
         world::{FromWorld, World},
     },
     prelude::*,
-    reflect::Uuid,
     render::{
         render_asset::RenderAssets,
         render_phase::{
-            BatchedPhaseItem, DrawFunctions, PhaseItem, RenderCommand, RenderCommandResult,
-            RenderPhase, SetItemPipeline, TrackedRenderPass,
+            DrawFunctions, PhaseItem, RenderCommand, RenderCommandResult, RenderPhase,
+            SetItemPipeline, TrackedRenderPass,
         },
         render_resource::{
-            BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
-            BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType,
-            BlendState, Buffer, BufferBinding, BufferBindingType, BufferInitDescriptor, BufferSize,
-            BufferUsages, ColorTargetState, ColorWrites, FragmentState, FrontFace, IndexFormat,
-            MultisampleState, PipelineCache, PolygonMode, PrimitiveState, PrimitiveTopology,
-            RenderPipelineDescriptor, SamplerBindingType, ShaderStages, ShaderType,
-            SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat,
-            TextureSampleType, TextureViewDimension, VertexState,
+            BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutEntry, BindingResource,
+            BindingType, BlendState, Buffer, BufferBinding, BufferBindingType,
+            BufferInitDescriptor, BufferSize, BufferUsages, ColorTargetState, ColorWrites,
+            FragmentState, FrontFace, IndexFormat, MultisampleState, PipelineCache, PolygonMode,
+            PrimitiveState, PrimitiveTopology, RenderPipelineDescriptor, SamplerBindingType,
+            ShaderStages, ShaderType, SpecializedRenderPipeline, SpecializedRenderPipelines,
+            TextureFormat, TextureSampleType, TextureViewDimension, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         texture::{BevyDefault, Image},
@@ -45,18 +44,6 @@ use crate::{
     PRIMITIVE_SHADER_HANDLE,
 };
 
-const NIL_HANDLE_ID: HandleId = HandleId::new(Uuid::nil(), 0);
-
-trait HandleIdExt {
-    fn is_valid(&self) -> bool;
-}
-
-impl HandleIdExt for HandleId {
-    fn is_valid(&self) -> bool {
-        *self != NIL_HANDLE_ID
-    }
-}
-
 pub type DrawPrimitive = (
     SetItemPipeline,
     SetPrimitiveViewBindGroup<0>,
@@ -69,13 +56,13 @@ pub struct SetPrimitiveViewBindGroup<const I: usize>;
 
 impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveViewBindGroup<I> {
     type Param = SRes<PrimitiveMeta>;
-    type ViewWorldQuery = Read<ViewUniformOffset>;
-    type ItemWorldQuery = ();
+    type ViewQuery = Read<ViewUniformOffset>;
+    type ItemQuery = ();
 
     fn render<'w>(
         _item: &P,
-        view_uniform_offset: &'_ ViewUniformOffset,
-        _entity: (),
+        view_uniform_offset: ROQueryItem<'w, Self::ViewQuery>,
+        _entity: Option<()>,
         primitive_meta: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
@@ -94,16 +81,19 @@ pub struct SetPrimitiveBufferBindGroup<const I: usize>;
 
 impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveBufferBindGroup<I> {
     type Param = SRes<PrimitiveMeta>;
-    type ViewWorldQuery = ();
-    type ItemWorldQuery = Read<PrimitiveBatch>;
+    type ViewQuery = ();
+    type ItemQuery = Read<PrimitiveBatch>;
 
     fn render<'w>(
         _item: &P,
-        _view: (),
-        primitive_batch: &'_ PrimitiveBatch,
+        _view: ROQueryItem<'w, Self::ViewQuery>,
+        primitive_batch: Option<ROQueryItem<'w, Self::ItemQuery>>,
         primitive_meta: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
+        let Some(primitive_batch) = primitive_batch else {
+            return RenderCommandResult::Failure;
+        };
         trace!(
             "SetPrimitiveBufferBindGroup: I={} canvas_entity={:?}",
             I,
@@ -128,22 +118,25 @@ pub struct SetPrimitiveTextureBindGroup<const I: usize>;
 
 impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveTextureBindGroup<I> {
     type Param = SRes<ImageBindGroups>;
-    type ViewWorldQuery = ();
-    type ItemWorldQuery = Read<PrimitiveBatch>;
+    type ViewQuery = ();
+    type ItemQuery = Read<PrimitiveBatch>;
 
     fn render<'w>(
         _item: &P,
-        _view: (),
-        primitive_batch: &'_ PrimitiveBatch,
+        _view: ROQueryItem<'w, Self::ViewQuery>,
+        primitive_batch: Option<ROQueryItem<'w, Self::ItemQuery>>,
         image_bind_groups: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
+        let Some(primitive_batch) = primitive_batch else {
+            return RenderCommandResult::Failure;
+        };
         trace!(
             "SetPrimitiveTextureBindGroup: I={} image={:?}",
             I,
             primitive_batch.image_handle_id
         );
-        if primitive_batch.image_handle_id.is_valid() {
+        if primitive_batch.image_handle_id != AssetId::<Image>::invalid() {
             let image_bind_groups = image_bind_groups.into_inner();
             trace!("image_bind_groups:");
             for (handle, bind_group) in &image_bind_groups.values {
@@ -153,7 +146,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveTextureBindG
                 I,
                 image_bind_groups
                     .values
-                    .get(&Handle::weak(primitive_batch.image_handle_id))
+                    .get(&primitive_batch.image_handle_id)
                     .unwrap(),
                 &[],
             );
@@ -164,18 +157,21 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveTextureBindG
 
 pub struct DrawPrimitiveBatch;
 
-impl<P: BatchedPhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
+impl<P: PhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
     type Param = SRes<PrimitiveMeta>;
-    type ViewWorldQuery = ();
-    type ItemWorldQuery = Read<PrimitiveBatch>;
+    type ViewQuery = ();
+    type ItemQuery = Read<PrimitiveBatch>;
 
     fn render<'w>(
         item: &P,
-        _view: (),
-        primitive_batch: &'_ PrimitiveBatch,
+        _view: ROQueryItem<'w, Self::ViewQuery>,
+        primitive_batch: Option<ROQueryItem<'w, Self::ItemQuery>>,
         primitive_meta: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
+        let Some(primitive_batch) = primitive_batch else {
+            return RenderCommandResult::Failure;
+        };
         let primitive_meta = primitive_meta.into_inner();
         if let Some(canvas_meta) = primitive_meta
             .canvas_meta
@@ -186,7 +182,7 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
                 0u64,
                 IndexFormat::Uint32,
             );
-            let indices = item.batch_range().as_ref().unwrap().clone();
+            let indices = item.batch_range().clone();
             trace!("DrawPrimitiveBatch: indices={:?}", indices);
             pass.draw_indexed(indices, 0, 0..1);
             RenderCommandResult::Success
@@ -205,7 +201,7 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
 #[derive(Component, Clone)]
 pub struct PrimitiveBatch {
     /// Handle of the texture for the batch, or [`NIL_HANDLE_ID`] if not textured.
-    image_handle_id: HandleId,
+    image_handle_id: AssetId<Image>,
     /// Entity holding the [`Canvas`] component this batch is built from.
     canvas_entity: Entity,
     /// Index range.
@@ -218,8 +214,8 @@ impl PrimitiveBatch {
     /// This is typically used as an initializing placeholder when doing incremental batching.
     pub fn invalid() -> Self {
         PrimitiveBatch {
-            image_handle_id: HandleId::Id(Uuid::nil(), u64::MAX),
-            canvas_entity: Entity::from_bits(u64::MAX),
+            image_handle_id: AssetId::<Image>::invalid(),
+            canvas_entity: Entity::PLACEHOLDER,
             range: 0..0,
         }
     }
@@ -269,7 +265,7 @@ impl Default for PrimitiveMeta {
 /// Shader bind groups for all images currently in use by primitives.
 #[derive(Default, Resource)]
 pub struct ImageBindGroups {
-    values: HashMap<Handle<Image>, BindGroup>,
+    values: HashMap<AssetId<Image>, BindGroup>,
 }
 
 /// Rendering pipeline for [`Canvas`] primitives.
@@ -289,8 +285,9 @@ impl FromWorld for PrimitivePipeline {
         let world = world.cell();
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
-        let view_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            entries: &[BindGroupLayoutEntry {
+        let view_layout = render_device.create_bind_group_layout(
+            "canvas_view_layout",
+            &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
                 ty: BindingType::Buffer {
@@ -300,11 +297,11 @@ impl FromWorld for PrimitivePipeline {
                 },
                 count: None,
             }],
-            label: Some("canvas_view_layout"),
-        });
+        );
 
-        let prim_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            entries: &[BindGroupLayoutEntry {
+        let prim_layout = render_device.create_bind_group_layout(
+            "canvas_prim_layout",
+            &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
                 ty: BindingType::Buffer {
@@ -314,11 +311,11 @@ impl FromWorld for PrimitivePipeline {
                 },
                 count: None,
             }],
-            label: Some("canvas_prim_layout"),
-        });
+        );
 
-        let material_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            entries: &[
+        let material_layout = render_device.create_bind_group_layout(
+            "quad_material_layout",
+            &[
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::FRAGMENT,
@@ -336,8 +333,7 @@ impl FromWorld for PrimitivePipeline {
                     count: None,
                 },
             ],
-            label: Some("quad_material_layout"),
-        });
+        );
 
         PrimitivePipeline {
             view_layout,
@@ -387,13 +383,13 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
 
         RenderPipelineDescriptor {
             vertex: VertexState {
-                shader: PRIMITIVE_SHADER_HANDLE.typed::<Shader>(),
+                shader: PRIMITIVE_SHADER_HANDLE,
                 entry_point: "vertex".into(),
                 shader_defs: shader_defs.clone(),
                 buffers: vec![], // vertex-less rendering
             },
             fragment: Some(FragmentState {
-                shader: PRIMITIVE_SHADER_HANDLE.typed::<Shader>(),
+                shader: PRIMITIVE_SHADER_HANDLE,
                 shader_defs,
                 entry_point: "fragment".into(),
                 targets: vec![Some(ColorTargetState {
@@ -531,15 +527,11 @@ pub struct PrimitiveAssetEvents {
 #[inline]
 fn clone_asset_event_weak<T: Asset>(event: &AssetEvent<T>) -> AssetEvent<T> {
     match event {
-        AssetEvent::Created { handle } => AssetEvent::Created {
-            handle: handle.clone_weak(),
-        },
-        AssetEvent::Modified { handle } => AssetEvent::Modified {
-            handle: handle.clone_weak(),
-        },
-        AssetEvent::Removed { handle } => AssetEvent::Removed {
-            handle: handle.clone_weak(),
-        },
+        AssetEvent::Added { id } => AssetEvent::Added { id: *id },
+        AssetEvent::Modified { id } => AssetEvent::Modified { id: *id },
+        AssetEvent::Removed { id } => AssetEvent::Removed { id: *id },
+        AssetEvent::LoadedWithDependencies { id } => AssetEvent::LoadedWithDependencies { id: *id },
+        AssetEvent::Unused { id } => AssetEvent::Unused { id: *id },
     }
 }
 
@@ -555,7 +547,7 @@ pub(crate) fn extract_primitive_events(
 
     images.clear();
 
-    for image in image_events.iter() {
+    for image in image_events.read() {
         images.push(clone_asset_event_weak(image));
     }
 }
@@ -574,7 +566,7 @@ pub(crate) struct ExtractedGlyph {
     /// section's style ([`TextStyle::color`]).
     pub color: u32,
     /// Handle of the atlas texture where the glyph is stored.
-    pub handle_id: HandleId,
+    pub handle_id: AssetId<Image>,
     /// Rectangle in UV coordinates delimiting the glyph area in the atlas texture.
     pub uv_rect: bevy::math::Rect,
 }
@@ -591,21 +583,16 @@ pub(crate) struct ExtractedGlyph {
 /// control the canvas visibility. By default if absent the canvas is assumed visible.
 pub(crate) fn extract_primitives(
     mut extracted_canvases: ResMut<ExtractedCanvases>,
-    texture_atlases: Extract<Res<Assets<TextureAtlas>>>,
+    texture_atlases: Extract<Res<Assets<TextureAtlasLayout>>>,
     q_window: Extract<Query<&Window, With<PrimaryWindow>>>,
-    canvas_query: Extract<
-        Query<(
-            Entity,
-            Option<&ComputedVisibility>,
-            &Canvas,
-            &GlobalTransform,
-        )>,
-    >,
+    canvas_query: Extract<Query<(Entity, Option<&ViewVisibility>, &Canvas, &GlobalTransform)>>,
 ) {
     trace!("extract_primitives");
 
     // TODO - handle multi-window
-    let Ok(primary_window) = q_window.get_single() else { return; };
+    let Ok(primary_window) = q_window.get_single() else {
+        return;
+    };
     let scale_factor = primary_window.scale_factor() as f32;
     let inv_scale_factor = 1. / scale_factor;
 
@@ -615,7 +602,7 @@ pub(crate) fn extract_primitives(
 
     for (entity, maybe_computed_visibility, canvas, transform) in canvas_query.iter() {
         // Skip hidden canvases. If no ComputedVisibility component is present, assume visible.
-        if !maybe_computed_visibility.map_or(true, |cvis| cvis.is_visible()) {
+        if !maybe_computed_visibility.map_or(true, |cvis| cvis.get()) {
             continue;
         }
 
@@ -639,11 +626,11 @@ pub(crate) fn extract_primitives(
             trace!("Extracting text {:?}...", text_id);
 
             if let Some(text_layout_info) = &text.layout_info {
-                let width = text_layout_info.size.x * inv_scale_factor;
-                let height = text_layout_info.size.y * inv_scale_factor;
+                let width = text_layout_info.logical_size.x * inv_scale_factor;
+                let height = text_layout_info.logical_size.y * inv_scale_factor;
 
                 let text_anchor = -(text.anchor.as_vec() + 0.5);
-                let alignment_translation = text_layout_info.size * text_anchor;
+                let alignment_translation = text_layout_info.logical_size * text_anchor;
 
                 trace!(
                     "-> {} glyphs, w={} h={} scale={} alignment_translation={:?}",
@@ -668,7 +655,7 @@ pub(crate) fn extract_primitives(
                     let atlas = texture_atlases
                         .get(&text_glyph.atlas_info.texture_atlas)
                         .unwrap();
-                    let handle = atlas.texture.clone_weak();
+                    let handle = text_glyph.atlas_info.texture.clone_weak();
                     let index = text_glyph.atlas_info.glyph_index as usize;
                     let uv_rect = atlas.textures[index];
 
@@ -749,7 +736,7 @@ impl<'a> SubPrimIter<'a> {
 }
 
 impl<'a> Iterator for SubPrimIter<'a> {
-    type Item = (HandleId, u32);
+    type Item = (AssetId<Image>, u32);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(prim) = &self.prim {
@@ -776,7 +763,7 @@ impl<'a> Iterator for SubPrimIter<'a> {
                     let handle_id = if let Some(id) = rect.image {
                         id
                     } else {
-                        NIL_HANDLE_ID
+                        AssetId::<Image>::invalid()
                     };
                     self.prim = None;
                     Some((handle_id, index_count))
@@ -784,7 +771,7 @@ impl<'a> Iterator for SubPrimIter<'a> {
                 _ => {
                     self.prim = None;
                     // Currently all other primitives are non-textured
-                    Some((NIL_HANDLE_ID, index_count))
+                    Some((AssetId::<Image>::invalid(), index_count))
                 }
             }
         } else {
@@ -830,10 +817,15 @@ pub(crate) fn prepare_primitives(
     // If an Image has changed, the GpuImage has (probably) changed
     for event in &events.images {
         match event {
-            AssetEvent::Created { .. } => None,
-            AssetEvent::Modified { handle } | AssetEvent::Removed { handle } => {
-                debug!("Remove IBG for handle {:?} due to {:?}", handle, event);
-                image_bind_groups.values.remove(handle)
+            AssetEvent::Added { .. } | AssetEvent::LoadedWithDependencies { .. } => None,
+            AssetEvent::Modified { id }
+            | AssetEvent::Removed { id }
+            | AssetEvent::Unused { id } => {
+                let removed = image_bind_groups.values.remove(id);
+                if removed.is_some() {
+                    debug!("Removed IBG for handle {:?} due to {:?}", id, event);
+                }
+                removed
             }
         };
     }
@@ -938,26 +930,26 @@ pub(crate) fn prepare_primitives(
                 // Batches are different; output the previous one before starting a new one.
 
                 // Check if the previous batch image is available on GPU; if so output the batch
-                if !current_batch.image_handle_id.is_valid() {
+                if current_batch.image_handle_id == AssetId::<Image>::invalid() {
                     trace!(
                         "Spawning batch: canvas_entity={:?} index={:?} (no tex)",
                         current_batch.canvas_entity,
                         current_batch.range,
                     );
                     commands.spawn(current_batch);
-                } else if let Some(gpu_image) =
-                    gpu_images.get(&Handle::weak(current_batch.image_handle_id))
-                {
+                } else if let Some(gpu_image) = gpu_images.get(current_batch.image_handle_id) {
                     image_bind_groups
                         .values
-                        .entry(Handle::weak(current_batch.image_handle_id))
+                        .entry(current_batch.image_handle_id)
                         .or_insert_with(|| {
                             debug!(
                                 "Insert new bind group for handle={:?}",
                                 current_batch.image_handle_id
                             );
-                            render_device.create_bind_group(&BindGroupDescriptor {
-                                entries: &[
+                            render_device.create_bind_group(
+                                "primitive_material_bind_group",
+                                &primitive_pipeline.material_layout,
+                                &[
                                     BindGroupEntry {
                                         binding: 0,
                                         resource: BindingResource::TextureView(
@@ -969,9 +961,7 @@ pub(crate) fn prepare_primitives(
                                         resource: BindingResource::Sampler(&gpu_image.sampler),
                                     },
                                 ],
-                                label: Some("primitive_material_bind_group"),
-                                layout: &primitive_pipeline.material_layout,
-                            })
+                            )
                         });
 
                     trace!(
@@ -997,26 +987,26 @@ pub(crate) fn prepare_primitives(
         trace!("Output last batch...");
         if !current_batch.range.is_empty() {
             // Check if the previous batch image is available on GPU; if so output the batch
-            if !current_batch.image_handle_id.is_valid() {
+            if current_batch.image_handle_id == AssetId::<Image>::invalid() {
                 trace!(
                     "Spawning batch: canvas_entity={:?} index={:?} (no tex)",
                     current_batch.canvas_entity,
                     current_batch.range,
                 );
                 commands.spawn(current_batch);
-            } else if let Some(gpu_image) =
-                gpu_images.get(&Handle::weak(current_batch.image_handle_id))
-            {
+            } else if let Some(gpu_image) = gpu_images.get(current_batch.image_handle_id) {
                 image_bind_groups
                     .values
-                    .entry(Handle::weak(current_batch.image_handle_id))
+                    .entry(current_batch.image_handle_id)
                     .or_insert_with(|| {
                         trace!(
                             "Insert new bind group for handle={:?}",
                             current_batch.image_handle_id
                         );
-                        render_device.create_bind_group(&BindGroupDescriptor {
-                            entries: &[
+                        render_device.create_bind_group(
+                            "primitive_material_bind_group",
+                            &primitive_pipeline.material_layout,
+                            &[
                                 BindGroupEntry {
                                     binding: 0,
                                     resource: BindingResource::TextureView(&gpu_image.texture_view),
@@ -1026,9 +1016,7 @@ pub(crate) fn prepare_primitives(
                                     resource: BindingResource::Sampler(&gpu_image.sampler),
                                 },
                             ],
-                            label: Some("primitive_material_bind_group"),
-                            layout: &primitive_pipeline.material_layout,
-                        })
+                        )
                     });
 
                 trace!(
@@ -1080,7 +1068,7 @@ pub fn queue_primitives(
     mut views: Query<&mut RenderPhase<Transparent2d>>,
     batches: Query<(Entity, &PrimitiveBatch)>,
 ) {
-    trace!("queue_primitives");
+    trace!("queue_primitives: {} batches", batches.iter().len());
 
     let view_binding = match view_uniforms.uniforms.binding() {
         Some(view_binding) => view_binding,
@@ -1091,16 +1079,17 @@ pub fn queue_primitives(
 
     let primitive_meta = &mut primitive_meta;
 
-    primitive_meta.view_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
-        entries: &[BindGroupEntry {
+    primitive_meta.view_bind_group = Some(render_device.create_bind_group(
+        "primitive_view_bind_group",
+        &primitive_pipeline.view_layout,
+        &[BindGroupEntry {
             binding: 0,
             resource: view_binding,
         }],
-        label: Some("primitive_view_bind_group"),
-        layout: &primitive_pipeline.view_layout,
-    }));
+    ));
 
     // TODO - per view culling?! (via VisibleEntities)
+    trace!("Specializing pipeline(s)...");
     let draw_primitives_function = draw_functions.read().get_id::<DrawPrimitive>().unwrap();
     let key = PrimitivePipelineKey::from_msaa_samples(msaa.samples());
     let untextured_pipeline = pipelines.specialize(&mut pipeline_cache, &primitive_pipeline, key);
@@ -1110,14 +1099,16 @@ pub fn queue_primitives(
         key | PrimitivePipelineKey::TEXTURED,
     );
 
+    trace!("Looping on batches...");
     for (batch_entity, batch) in batches.iter() {
+        trace!("batch ent={:?} range={:?}", batch_entity, batch.range);
         if batch.range.is_empty() {
             continue;
         }
 
         let canvas_entity = batch.canvas_entity;
 
-        let is_textured = batch.image_handle_id.is_valid();
+        let is_textured = batch.image_handle_id != AssetId::<Image>::invalid();
         let pipeline = if is_textured {
             textured_pipeline
         } else {
@@ -1131,14 +1122,14 @@ pub fn queue_primitives(
                 continue;
             };
 
-        let primitive_bind_group = render_device.create_bind_group(&BindGroupDescriptor {
-            entries: &[BindGroupEntry {
+        let primitive_bind_group = render_device.create_bind_group(
+            "prim_bind_group",
+            &primitive_pipeline.prim_layout,
+            &[BindGroupEntry {
                 binding: 0,
                 resource: extracted_canvas.binding().unwrap(),
             }],
-            label: Some("prim_bind_group"),
-            layout: &primitive_pipeline.prim_layout,
-        });
+        );
         let index_buffer = extracted_canvas.index_buffer.as_ref().unwrap().clone();
 
         // Update meta map
@@ -1171,7 +1162,8 @@ pub fn queue_primitives(
         // FIXME - Use VisibleEntities to optimize per-view
         for mut transparent_phase in views.iter_mut() {
             trace!(
-                "Add Transparent2d item: {:?} (sort={:?})",
+                "Add Transparent2d entity={:?} range={:?} (sort={:?})",
+                batch_entity,
                 batch.range,
                 sort_key
             );
@@ -1180,7 +1172,8 @@ pub fn queue_primitives(
                 pipeline,
                 entity: batch_entity,
                 sort_key,
-                batch_range: Some(batch.range.clone()),
+                batch_range: batch.range.clone(),
+                dynamic_offset: None,
             });
         }
     }

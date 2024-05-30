@@ -24,9 +24,8 @@ pub use render_context::RenderContext;
 pub use shapes::*;
 pub use text::{CanvasTextId, KeithTextPipeline};
 
-use bevy::asset::{Assets, HandleUntyped};
+use bevy::asset::load_internal_asset;
 use bevy::core_pipeline::core_2d::Transparent2d;
-use bevy::reflect::TypeUuid;
 use bevy::render::{
     render_phase::AddRenderCommand,
     render_resource::{Shader, SpecializedRenderPipelines},
@@ -36,8 +35,8 @@ use bevy::render::{
 #[derive(Default)]
 pub struct KeithPlugin;
 
-pub(crate) const PRIMITIVE_SHADER_HANDLE: HandleUntyped =
-    HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 1713353953151292643);
+pub(crate) const PRIMITIVE_SHADER_HANDLE: Handle<Shader> =
+    Handle::weak_from_u128(1713353953151292643);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub enum KeithSystem {
@@ -49,16 +48,20 @@ pub enum KeithSystem {
 
 impl Plugin for KeithPlugin {
     fn build(&self, app: &mut App) {
-        let mut shaders = app.world.resource_mut::<Assets<Shader>>();
-        let primitives_shader =
-            Shader::from_wgsl(include_str!("render/prim.wgsl"), "bevy_keith/prim.wgsl");
-        shaders.set_untracked(PRIMITIVE_SHADER_HANDLE, primitives_shader);
+        load_internal_asset!(
+            app,
+            PRIMITIVE_SHADER_HANDLE,
+            "render/prim.wgsl",
+            Shader::from_wgsl
+        );
 
         app.register_type::<Canvas>()
             .init_resource::<KeithTextPipeline>()
             .add_systems(PreUpdate, canvas::update_canvas_from_ortho_camera)
             .add_systems(PostUpdate, text::process_glyphs); //.after(ModifiesWindows),
+    }
 
+    fn finish(&self, app: &mut App) {
         if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
                 .init_resource::<ImageBindGroups>()
@@ -68,7 +71,7 @@ impl Plugin for KeithPlugin {
                 .init_resource::<ExtractedCanvases>()
                 .init_resource::<PrimitiveAssetEvents>()
                 .add_render_command::<Transparent2d, DrawPrimitive>()
-                .configure_set(ExtractSchedule, KeithSystem::ExtractPrimitives)
+                .configure_sets(ExtractSchedule, KeithSystem::ExtractPrimitives)
                 .edit_schedule(ExtractSchedule, |schedule| {
                     schedule.add_systems(
                         (
@@ -81,7 +84,7 @@ impl Plugin for KeithPlugin {
                 })
                 .add_systems(
                     Render,
-                    render::prepare_primitives.in_set(RenderSet::Prepare),
+                    render::prepare_primitives.in_set(RenderSet::PrepareAssets),
                 )
                 .add_systems(Render, render::queue_primitives.in_set(RenderSet::Queue));
         };

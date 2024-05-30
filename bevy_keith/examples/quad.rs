@@ -8,13 +8,14 @@ use bevy_keith::*;
 fn main() {
     App::new()
         // Helper to exit with ESC key
-        .add_system(bevy::window::close_on_esc)
+        .add_systems(Update, bevy::window::close_on_esc)
         // Default plugins
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
-                    filter: "quad=trace,bevy_keith=debug".to_string(),
+                    filter: "quad=trace,bevy_keith=debug,bevy=info".to_string(),
+                    update_subscriber: None,
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
@@ -25,11 +26,10 @@ fn main() {
                 }),
         )
         .insert_resource(ClearColor(Color::DARK_GRAY))
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(KeithPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
-        .add_system(run)
+        .add_plugins(KeithPlugin)
+        .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
+        .add_systems(Update, run)
         .run();
 }
 
@@ -110,7 +110,7 @@ fn draw_button(
         .font(font)
         .font_size(16.)
         .bounds(rect.size())
-        .alignment(TextAlignment::Center)
+        .alignment(JustifyText::Center)
         .build();
     ctx.draw_text(text, (rect.min + rect.max) / 2.);
 }

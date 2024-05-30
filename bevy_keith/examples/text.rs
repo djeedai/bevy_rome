@@ -11,13 +11,14 @@ use bevy_keith::*;
 fn main() {
     App::new()
         // Helper to exit with ESC key
-        .add_system(bevy::window::close_on_esc)
+        .add_systems(Update, bevy::window::close_on_esc)
         // Default plugins
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "text=trace,bevy_keith=info".to_string(),
+                    update_subscriber: None,
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
@@ -28,11 +29,10 @@ fn main() {
                 }),
         )
         .insert_resource(ClearColor(Color::DARK_GRAY))
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(KeithPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
-        .add_system(run)
+        .add_plugins(KeithPlugin)
+        .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
+        .add_systems(Update, run)
         .run();
 }
 
@@ -99,7 +99,7 @@ fn draw_boxed_text(
         .font_size(16.)
         .bounds(rect.size())
         .anchor(anchor)
-        .alignment(TextAlignment::Center)
+        .alignment(JustifyText::Center)
         .build();
     ctx.draw_text(text, (rect.min + rect.max) / 2.);
 }
@@ -133,7 +133,7 @@ fn draw_anchored_text(
         .font_size(16.)
         .bounds(size)
         .anchor(anchor)
-        .alignment(TextAlignment::Left)
+        .alignment(JustifyText::Left)
         .build();
     ctx.draw_text(text, pos);
 }

@@ -76,7 +76,7 @@ pub struct TextLayout {
     /// Text anchor.
     pub(crate) anchor: Anchor,
     /// Text alignment relative to its origin (render position).
-    pub(crate) alignment: TextAlignment,
+    pub(crate) alignment: JustifyText,
     /// Text bounds, used for glyph clipping.
     pub(crate) bounds: Vec2,
     /// Calculated text size based on glyphs alone, updated by [`process_glyphs()`].
@@ -91,7 +91,7 @@ impl Default for TextLayout {
             id: 0,
             sections: vec![],
             anchor: Anchor::default(),
-            alignment: TextAlignment::Left,
+            alignment: JustifyText::Left,
             bounds: Vec2::ZERO,
             calculated_size: Vec2::ZERO,
             layout_info: None,
@@ -105,7 +105,7 @@ pub struct TextLayoutBuilder<'c> {
     value: String,
     bounds: Vec2,
     anchor: Anchor,
-    alignment: TextAlignment,
+    alignment: JustifyText,
 }
 
 impl<'c> TextLayoutBuilder<'c> {
@@ -116,7 +116,7 @@ impl<'c> TextLayoutBuilder<'c> {
             value: storage.as_str().to_owned(),
             bounds: Vec2::new(f32::MAX, f32::MAX),
             anchor: Anchor::default(),
-            alignment: TextAlignment::Left, //Bottom,
+            alignment: JustifyText::Left, //Bottom,
         }
     }
 
@@ -158,7 +158,7 @@ impl<'c> TextLayoutBuilder<'c> {
     }
 
     /// Set the text alignment relative to its render position.
-    pub fn alignment(mut self, alignment: TextAlignment) -> Self {
+    pub fn alignment(mut self, alignment: JustifyText) -> Self {
         self.alignment = alignment;
         self
     }
