@@ -79,7 +79,8 @@ pub struct TextLayout {
     pub(crate) alignment: JustifyText,
     /// Text bounds, used for glyph clipping.
     pub(crate) bounds: Vec2,
-    /// Calculated text size based on glyphs alone, updated by [`process_glyphs()`].
+    /// Calculated text size based on glyphs alone, updated by
+    /// [`process_glyphs()`].
     pub(crate) calculated_size: Vec2,
     /// Layout info calculated by the [`KeithTextPipeline`].
     pub(crate) layout_info: Option<TextLayoutInfo>,
@@ -116,7 +117,7 @@ impl<'c> TextLayoutBuilder<'c> {
             value: storage.as_str().to_owned(),
             bounds: Vec2::new(f32::MAX, f32::MAX),
             anchor: Anchor::default(),
-            alignment: JustifyText::Left, //Bottom,
+            alignment: JustifyText::Left, // Bottom,
         }
     }
 
@@ -142,10 +143,11 @@ impl<'c> TextLayoutBuilder<'c> {
 
     /// Set some bounds around the text.
     ///
-    /// The text will be formatted with line wrapping and clipped to fit in those bounds.
+    /// The text will be formatted with line wrapping and clipped to fit in
+    /// those bounds.
     ///
-    /// FIXME - Currently no clipping for partially visible glyphs, only completely outside
-    /// ones are clipped.
+    /// FIXME - Currently no clipping for partially visible glyphs, only
+    /// completely outside ones are clipped.
     pub fn bounds(mut self, bounds: Vec2) -> Self {
         self.bounds = bounds;
         self
@@ -163,9 +165,11 @@ impl<'c> TextLayoutBuilder<'c> {
         self
     }
 
-    /// Finalize the layout building and return the newly allocated text layout ID.
+    /// Finalize the layout building and return the newly allocated text layout
+    /// ID.
     ///
-    /// FIXME - Return CanvasTextId somehow, to ensure texts are not used cross-Canvas.
+    /// FIXME - Return CanvasTextId somehow, to ensure texts are not used
+    /// cross-Canvas.
     pub fn build(self) -> u32 {
         let layout = TextLayout {
             id: 0, // assigned in finish_layout()
@@ -189,14 +193,14 @@ pub struct BevyImage {
 }
 
 // impl BevyImage {
-//     fn new(width: usize, height: usize, buf: &[u8], format: piet::ImageFormat) -> Self {
-//         let data = buf.to_vec();
+//     fn new(width: usize, height: usize, buf: &[u8], format:
+// piet::ImageFormat) -> Self {         let data = buf.to_vec();
 //         let format = match format {
-//             piet::ImageFormat::Grayscale => bevy::render::render_resource::TextureFormat::R8Unorm,
-//             piet::ImageFormat::Rgb => unimplemented!(),
-//             piet::ImageFormat::RgbaSeparate => {
-//                 bevy::render::render_resource::TextureFormat::Rgba8Unorm
-//             }
+//             piet::ImageFormat::Grayscale =>
+// bevy::render::render_resource::TextureFormat::R8Unorm,             
+// piet::ImageFormat::Rgb => unimplemented!(),             
+// piet::ImageFormat::RgbaSeparate => {                 
+// bevy::render::render_resource::TextureFormat::Rgba8Unorm             }
 //             piet::ImageFormat::RgbaPremul => unimplemented!(),
 //             _ => unimplemented!(),
 //         };

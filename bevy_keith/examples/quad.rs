@@ -124,7 +124,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     let cursor_pos = if let Ok(window) = q_window.get_single() {
         window
             .cursor_position()
-            .map(|v| v - Vec2::new(1280., 720.) / 2.) // FIXME - cheap window-to-canvas hard-coded conversion
+            .map(|v| Vec2::new(v.x - 1280. / 2., 720. / 2. - v.y)) // FIXME - cheap window-to-canvas hard-coded conversion
     } else {
         None
     }

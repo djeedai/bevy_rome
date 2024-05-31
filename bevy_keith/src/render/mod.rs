@@ -132,9 +132,14 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveTextureBindG
             return RenderCommandResult::Failure;
         };
         trace!(
-            "SetPrimitiveTextureBindGroup: I={} image={:?}",
+            "SetPrimitiveTextureBindGroup: I={} image={:?} (valid={})",
             I,
-            primitive_batch.image_handle_id
+            primitive_batch.image_handle_id,
+            if primitive_batch.image_handle_id != AssetId::<Image>::invalid() {
+                "true"
+            } else {
+                "false"
+            }
         );
         if primitive_batch.image_handle_id != AssetId::<Image>::invalid() {
             let image_bind_groups = image_bind_groups.into_inner();
@@ -163,7 +168,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
     type ItemQuery = Read<PrimitiveBatch>;
 
     fn render<'w>(
-        item: &P,
+        _item: &P,
         _view: ROQueryItem<'w, Self::ViewQuery>,
         primitive_batch: Option<ROQueryItem<'w, Self::ItemQuery>>,
         primitive_meta: SystemParamItem<'w, '_, Self::Param>,
@@ -182,7 +187,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
                 0u64,
                 IndexFormat::Uint32,
             );
-            let indices = item.batch_range().clone();
+            let indices = primitive_batch.range.clone();
             trace!("DrawPrimitiveBatch: indices={:?}", indices);
             pass.draw_indexed(indices, 0, 0..1);
             RenderCommandResult::Success
@@ -196,11 +201,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
     }
 }
 
-/// Batch of primitives sharing the same [`Canvas`] and rendering characteristics,
-/// and which can be rendered with a single draw call.
+/// Batch of primitives sharing the same [`Canvas`] and rendering
+/// characteristics, and which can be rendered with a single draw call.
 #[derive(Component, Clone)]
 pub struct PrimitiveBatch {
-    /// Handle of the texture for the batch, or [`NIL_HANDLE_ID`] if not textured.
+    /// Handle of the texture for the batch, or [`NIL_HANDLE_ID`] if not
+    /// textured.
     image_handle_id: AssetId<Image>,
     /// Entity holding the [`Canvas`] component this batch is built from.
     canvas_entity: Entity,
@@ -211,7 +217,8 @@ pub struct PrimitiveBatch {
 impl PrimitiveBatch {
     /// Create a batch with invalid values, that will never merge with anyhing.
     ///
-    /// This is typically used as an initializing placeholder when doing incremental batching.
+    /// This is typically used as an initializing placeholder when doing
+    /// incremental batching.
     pub fn invalid() -> Self {
         PrimitiveBatch {
             image_handle_id: AssetId::<Image>::invalid(),
@@ -249,7 +256,8 @@ struct CanvasMeta {
 #[derive(Resource)]
 pub struct PrimitiveMeta {
     view_bind_group: Option<BindGroup>,
-    /// Map from an [`Entity`] with a [`Canvas`] component to the meta for that canvas.
+    /// Map from an [`Entity`] with a [`Canvas`] component to the meta for that
+    /// canvas.
     canvas_meta: HashMap<Entity, CanvasMeta>,
 }
 
@@ -271,8 +279,8 @@ pub struct ImageBindGroups {
 /// Rendering pipeline for [`Canvas`] primitives.
 #[derive(Resource)]
 pub struct PrimitivePipeline {
-    /// Bind group layout for the uniform buffer containing the [`ViewUniform`] with
-    /// the camera details of the current view being rendered.
+    /// Bind group layout for the uniform buffer containing the [`ViewUniform`]
+    /// with the camera details of the current view being rendered.
     view_layout: BindGroupLayout,
     /// Bind group layout for the primitive buffer.
     prim_layout: BindGroupLayout,
@@ -506,12 +514,12 @@ impl ExtractedCanvas {
     }
 }
 
-/// Resource attached to the render world and containing all the data extracted from the
-/// various visible [`Canvas`] components.
+/// Resource attached to the render world and containing all the data extracted
+/// from the various visible [`Canvas`] components.
 #[derive(Default, Resource)]
 pub struct ExtractedCanvases {
-    /// Map from app world's entity with a [`Canvas`] component to associated render world's
-    /// extracted canvas.
+    /// Map from app world's entity with a [`Canvas`] component to associated
+    /// render world's extracted canvas.
     pub canvases: HashMap<Entity, ExtractedCanvas>,
 }
 
@@ -520,8 +528,8 @@ pub struct PrimitiveAssetEvents {
     pub images: Vec<AssetEvent<Image>>,
 }
 
-/// Clone an [`AssetEvent`] manually by unwrapping and re-wrapping it, returning an event
-/// with a weak handle.
+/// Clone an [`AssetEvent`] manually by unwrapping and re-wrapping it, returning
+/// an event with a weak handle.
 ///
 /// This is necessary because [`AssetEvent`] is `!Clone`.
 #[inline]
@@ -541,7 +549,7 @@ pub(crate) fn extract_primitive_events(
     mut events: ResMut<PrimitiveAssetEvents>,
     mut image_events: Extract<EventReader<AssetEvent<Image>>>,
 ) {
-    //trace!("extract_primitive_events");
+    // trace!("extract_primitive_events");
 
     let PrimitiveAssetEvents { ref mut images } = *events;
 
@@ -562,25 +570,27 @@ pub(crate) struct ExtractedGlyph {
     /// Offset of the glyph from the text origin.
     pub offset: Vec2,
     pub size: Vec2,
-    /// Glyph color, as RGBA linear (0xAABBGGRR in little endian). Extracted from the text
-    /// section's style ([`TextStyle::color`]).
+    /// Glyph color, as RGBA linear (0xAABBGGRR in little endian). Extracted
+    /// from the text section's style ([`TextStyle::color`]).
     pub color: u32,
     /// Handle of the atlas texture where the glyph is stored.
     pub handle_id: AssetId<Image>,
-    /// Rectangle in UV coordinates delimiting the glyph area in the atlas texture.
+    /// Rectangle in UV coordinates delimiting the glyph area in the atlas
+    /// texture.
     pub uv_rect: bevy::math::Rect,
 }
 
-/// Render app system extracting all primitives from all [`Canvas`] components, for later
-/// rendering.
+/// Render app system extracting all primitives from all [`Canvas`] components,
+/// for later rendering.
 ///
 /// # Dependent components
 ///
-/// [`Canvas`] components require at least a [`GlobalTransform`] component attached to the
-/// same entity and describing the canvas 3D transform.
+/// [`Canvas`] components require at least a [`GlobalTransform`] component
+/// attached to the same entity and describing the canvas 3D transform.
 ///
-/// An optional [`ComputedVisibility`] component can be added to that same entity to dynamically
-/// control the canvas visibility. By default if absent the canvas is assumed visible.
+/// An optional [`ComputedVisibility`] component can be added to that same
+/// entity to dynamically control the canvas visibility. By default if absent
+/// the canvas is assumed visible.
 pub(crate) fn extract_primitives(
     mut extracted_canvases: ResMut<ExtractedCanvases>,
     texture_atlases: Extract<Res<Assets<TextureAtlasLayout>>>,
@@ -601,7 +611,8 @@ pub(crate) fn extract_primitives(
     extracted_canvases.clear();
 
     for (entity, maybe_computed_visibility, canvas, transform) in canvas_query.iter() {
-        // Skip hidden canvases. If no ComputedVisibility component is present, assume visible.
+        // Skip hidden canvases. If no ComputedVisibility component is present, assume
+        // visible.
         if !maybe_computed_visibility.map_or(true, |cvis| cvis.get()) {
             continue;
         }
@@ -670,10 +681,11 @@ pub(crate) fn extract_primitives(
                     });
 
                     // let glyph_transform = Transform::from_translation(
-                    //     alignment_offset * scale_factor + text_glyph.position.extend(0.),
-                    // );
+                    //     alignment_offset * scale_factor +
+                    // text_glyph.position.extend(0.), );
 
-                    // let transform = text_transform.mul_transform(glyph_transform);
+                    // let transform =
+                    // text_transform.mul_transform(glyph_transform);
 
                     // extracted_sprites.sprites.push(ExtractedSprite {
                     //     transform,
@@ -843,9 +855,9 @@ pub(crate) fn prepare_primitives(
         let mut primitives = vec![];
         let mut indices = vec![];
 
-        // Serialize primitives into a binary float32 array, to work around the fact wgpu doesn't
-        // have byte arrays. And f32 being the most common type of data in primitives limits the
-        // amount of bitcast in the shader.
+        // Serialize primitives into a binary float32 array, to work around the fact
+        // wgpu doesn't have byte arrays. And f32 being the most common type of
+        // data in primitives limits the amount of bitcast in the shader.
         trace!(
             "Serialize {} primitives...",
             extracted_canvas.primitives.len()
@@ -1137,7 +1149,7 @@ pub fn queue_primitives(
             .canvas_meta
             .entry(canvas_entity)
             .and_modify(|canvas_meta| {
-                //canvas_meta.batch_entity = batch_entity;
+                // canvas_meta.batch_entity = batch_entity;
                 canvas_meta.primitive_bind_group = primitive_bind_group.clone();
                 canvas_meta.index_buffer = index_buffer.clone();
             })
@@ -1172,7 +1184,9 @@ pub fn queue_primitives(
                 pipeline,
                 entity: batch_entity,
                 sort_key,
-                batch_range: batch.range.clone(),
+                // This is batching multiple items into a single draw call, which is not a feature
+                // of bevy_render we currently use
+                batch_range: 0..1,
                 dynamic_offset: None,
             });
         }

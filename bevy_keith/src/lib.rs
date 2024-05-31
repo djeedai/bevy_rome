@@ -76,7 +76,7 @@ impl Plugin for KeithPlugin {
                     schedule.add_systems(
                         (
                             render::extract_primitives,
-                            render::extract_primitive_events, /*, text::extract_text_primitives*/
+                            render::extract_primitive_events, // , text::extract_text_primitives
                         )
                             .in_set(KeithSystem::ExtractPrimitives)
                             .after(SpriteSystem::ExtractSprites),
@@ -84,9 +84,16 @@ impl Plugin for KeithPlugin {
                 })
                 .add_systems(
                     Render,
-                    render::prepare_primitives.in_set(RenderSet::PrepareAssets),
+                    render::prepare_primitives
+                        .in_set(RenderSet::PrepareAssets)
+                        .after(KeithSystem::ExtractPrimitives),
                 )
-                .add_systems(Render, render::queue_primitives.in_set(RenderSet::Queue));
+                .add_systems(
+                    Render,
+                    render::queue_primitives
+                        .in_set(RenderSet::Queue)
+                        .after(render::prepare_primitives),
+                );
         };
     }
 }

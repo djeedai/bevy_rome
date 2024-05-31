@@ -44,14 +44,15 @@ impl CanvasTextId {
 
 pub type KeithTextPipeline = TextPipeline; //<CanvasTextId>;
 
-/// System running during the [`CoreStage::PostUpdate`] stage of the main app to process
-/// the glyphs of all texts of all [`Canvas`] components.
+/// System running during the [`CoreStage::PostUpdate`] stage of the main app to
+/// process the glyphs of all texts of all [`Canvas`] components.
 ///
-/// The system processes all glyphs of all drawn texts, and inserts the newly needed glyph
-/// images into the texture atlas(es) used for later text rendering.
+/// The system processes all glyphs of all drawn texts, and inserts the newly
+/// needed glyph images into the texture atlas(es) used for later text
+/// rendering.
 ///
-/// It takes into account the scaling of the window the canvas is rendered onto, adapting
-/// to scale changes.
+/// It takes into account the scaling of the window the canvas is rendered onto,
+/// adapting to scale changes.
 ///
 /// [`CoreStage::PostUpdate`]: bevy::app::CoreStage::PostUpdate
 pub fn process_glyphs(
@@ -92,7 +93,8 @@ pub fn process_glyphs(
 
         // Loop on all texts for the current canvas
         for text in canvas.text_layouts_mut() {
-            // Update the text glyphs, storing them into the font atlas(es) for later rendering
+            // Update the text glyphs, storing them into the font atlas(es) for later
+            // rendering
             trace!(
                 "Queue text: id={} anchor={:?} alignment={:?} bounds={:?}",
                 text.id,

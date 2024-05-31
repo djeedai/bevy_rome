@@ -44,14 +44,15 @@ pub(crate) trait PrimImpl {
 ///
 /// # Note
 ///
-/// The enum values must be kept in sync with the values inside the primitive shader.
+/// The enum values must be kept in sync with the values inside the primitive
+/// shader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 enum GpuPrimitiveKind {
     /// Axis-aligned rectangle, possibly textured.
     Rect = 0,
-    /// Text glyph. Same as `Rect`, but samples from texture's alpha instead of RGB,
-    /// and is always textured.
+    /// Text glyph. Same as `Rect`, but samples from texture's alpha instead of
+    /// RGB, and is always textured.
     Glyph = 1,
     /// Line segment.
     Line = 2,
@@ -63,13 +64,14 @@ enum GpuPrimitiveKind {
 ///
 /// # Note
 ///
-/// The encoding must be kept in sync with the values inside the primitive shader.
+/// The encoding must be kept in sync with the values inside the primitive
+/// shader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct GpuIndex(u32);
 
 impl GpuIndex {
-    /// Create a new encoded index from a base primitive buffer index, a corner specification,
-    /// and a kind of primitive to draw.
+    /// Create a new encoded index from a base primitive buffer index, a corner
+    /// specification, and a kind of primitive to draw.
     ///
     ///  31                                           0
     /// [ ttt | kkk |  cc  | bbbbbbbb bbbbbbbb bbbbbbb ]
@@ -285,9 +287,11 @@ pub struct TextPrimitive {
 }
 
 impl TextPrimitive {
-    /// Number of elements used by each single glyph in the primitive element buffer.
+    /// Number of elements used by each single glyph in the primitive element
+    /// buffer.
     pub const ROW_PER_GLYPH: u32 = 9;
-    /// Number of indices used by each single glyph in the primitive index buffer.
+    /// Number of indices used by each single glyph in the primitive index
+    /// buffer.
     pub const INDEX_PER_GLYPH: u32 = 6;
 }
 
@@ -437,8 +441,9 @@ impl PrimImpl for QuarterPiePrimitive {
 
 /// Drawing surface for 2D graphics.
 ///
-/// If the component is attached to the same entity as an [`OrthographicProjection`],
-/// then its dimensions are automatically computed and updated based on that projection.
+/// If the component is attached to the same entity as an
+/// [`OrthographicProjection`], then its dimensions are automatically computed
+/// and updated based on that projection.
 #[derive(Component, Debug, Default, Reflect)]
 #[reflect(Component)]
 pub struct Canvas {
@@ -462,8 +467,8 @@ impl Canvas {
         Self { rect, ..default() }
     }
 
-    /// Create a new canvas with dimensions calculated to cover the area of an orthographic
-    /// projection.
+    /// Create a new canvas with dimensions calculated to cover the area of an
+    /// orthographic projection.
     pub fn from_ortho(ortho: &OrthographicProjection) -> Self {
         Self::new(ortho.area)
     }
@@ -512,9 +517,9 @@ impl Canvas {
 
     /// Draw a new primitive onto the canvas.
     ///
-    /// This is a lower level entry point to canvas drawing; in general, you should
-    /// prefer acquiring a [`RenderContext`] via [`render_context()`] and using it
-    /// to draw primitives.
+    /// This is a lower level entry point to canvas drawing; in general, you
+    /// should prefer acquiring a [`RenderContext`] via [`render_context()`]
+    /// and using it to draw primitives.
     ///
     /// [`render_context()`]: crate::canvas::Canvas::render_context
     pub fn draw(&mut self, prim: impl Into<Primitive>) {
@@ -522,8 +527,8 @@ impl Canvas {
         if let Primitive::Text(text) = &prim {
             trace!("draw text #{} at rect={:?}", text.id, text.rect);
             self.text_changed = true;
-            //let layout = &mut self.text_layouts[text.id.index()];
-            //layout.used = true;
+            // let layout = &mut self.text_layouts[text.id.index()];
+            // layout.used = true;
         }
         self.primitives.push(prim);
     }
@@ -568,8 +573,8 @@ impl Canvas {
     }
 }
 
-/// Update the dimensions of any [`Canvas`] component attached to the same entity as
-/// as an [`OrthographicProjection`] component.
+/// Update the dimensions of any [`Canvas`] component attached to the same
+/// entity as as an [`OrthographicProjection`] component.
 pub fn update_canvas_from_ortho_camera(mut query: Query<(&mut Canvas, &OrthographicProjection)>) {
     for (mut canvas, ortho) in query.iter_mut() {
         trace!("ortho canvas rect = {:?}", ortho.area);

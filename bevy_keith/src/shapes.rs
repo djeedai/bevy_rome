@@ -73,7 +73,7 @@ pub struct RoundedRect {
 impl Shape for RoundedRect {
     fn fill(&self, canvas: &mut Canvas, brush: &Brush) {
         if self.radii.cmple(Vec2::ZERO).all() {
-            //canvas.fill(...) // TODO
+            // canvas.fill(...) // TODO
             return;
         }
 
