@@ -86,7 +86,8 @@ impl Plugin for KeithPlugin {
                     Render,
                     render::prepare_primitives
                         .in_set(RenderSet::PrepareAssets)
-                        .after(KeithSystem::ExtractPrimitives),
+                        .after(KeithSystem::ExtractPrimitives)
+                        .after(bevy::text::extract_text2d_sprite),
                 )
                 .add_systems(
                     Render,

@@ -86,9 +86,9 @@ mod tests {
             let mut buf: [u8; 1024] = [0; 1024];
             let len = stream.read(&mut buf).unwrap();
 
-            //TODO - need to decode the message type first!!!!
+            // TODO - need to decode the message type first!!!!
 
-            //let msg = queue.recv(&buf[..len]);
+            // let msg = queue.recv(&buf[..len]);
         });
 
         let stream = TcpStream::connect("127.0.0.1:34254")?;

@@ -201,7 +201,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
             "The quick brown fox jumps over the lazy dog.",
         ),
     ] {
-        //let pos = anchor.as_vec() * Vec2::new(280., 80.);
+        // let pos = anchor.as_vec() * Vec2::new(280., 80.);
         let pos = anchor.as_vec() * Vec2::new(400., 200.);
         draw_anchored_text(&mut ctx, pos, anchor_name, my_res.font.clone(), anchor);
     }
@@ -214,8 +214,8 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     //     let y = (j - 1) as f32 * 100.;
     //     for (i, w) in [30., 50., 70.].iter().enumerate() {
     //         let x = (i - 1) as f32 * 100.;
-    //         let rect = Rect::from_center_size(Vec2::new(x, y), Vec2::new(*w, 40.));
-    //         draw_boxed_text(
+    //         let rect = Rect::from_center_size(Vec2::new(x, y), Vec2::new(*w,
+    // 40.));         draw_boxed_text(
     //             &mut ctx,
     //             rect,
     //             "Submit",
@@ -230,8 +230,8 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     //     min: Vec2::new(-200., -140.),
     //     max: Vec2::new(-80., -110.),
     // };
-    // draw_boxed_text(&mut ctx, rect, "Cancel", my_res.font.clone(), cursor_pos);
-    // let rect = Rect {
+    // draw_boxed_text(&mut ctx, rect, "Cancel", my_res.font.clone(),
+    // cursor_pos); let rect = Rect {
     //     min: Vec2::new(-200., -180.),
     //     max: Vec2::new(-80., -150.),
     // };

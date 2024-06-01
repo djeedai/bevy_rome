@@ -130,7 +130,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     }
     .unwrap_or(Vec2::NAN);
 
-    //ctx.clear(None, Color::FUCHSIA);
+    // ctx.clear(None, Color::FUCHSIA);
 
     let brush = ctx.solid_brush(Color::BISQUE);
     let rect = Rect {

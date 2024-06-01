@@ -16,7 +16,7 @@ use super::error::Error;
 #[derive(Serialize, Deserialize)]
 struct DiffTarget {
     entity: Entity,
-    component: usize, //ComponentId,
+    component: usize, // ComponentId,
 }
 
 impl DiffTarget {
@@ -29,10 +29,10 @@ impl DiffTarget {
         }
     }
 
-    // pub fn resolve_mut<'w, T: Component>(&self, world: &'w mut World) -> Option<Mut<'w, T>> {
-    //     if let Some(mut entity) = world.get_entity_mut(self.entity) {
-    //         // TODO - Validate self.component!
-    //         entity.get_mut::<T>()
+    // pub fn resolve_mut<'w, T: Component>(&self, world: &'w mut World) ->
+    // Option<Mut<'w, T>> {     if let Some(mut entity) =
+    // world.get_entity_mut(self.entity) {         // TODO - Validate
+    // self.component!         entity.get_mut::<T>()
     //     } else {
     //         None
     //     }
@@ -61,12 +61,15 @@ impl Diff {
     pub fn make<T: Reflect>(base: &T, curr: &T) -> Diff {
         match base.reflect_ref() {
             ReflectRef::Struct(s) => {
-                println!("struct {}", s.type_name());
+                println!(
+                    "struct {}",
+                    s.get_represented_type_info().unwrap().type_path()
+                );
                 for f in s.iter_fields() {
                     println!("{:?}", f);
                 }
-            },
-            _ => ()
+            }
+            _ => (),
         }
         Diff {
             target: DiffTarget {
