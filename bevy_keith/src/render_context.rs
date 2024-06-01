@@ -30,6 +30,18 @@ impl Default for Brush {
     }
 }
 
+impl From<Color> for Brush {
+    fn from(color: Color) -> Self {
+        Self { color }
+    }
+}
+
+impl From<&Color> for Brush {
+    fn from(color: &Color) -> Self {
+        Self { color: *color }
+    }
+}
+
 impl Brush {
     pub fn color(&self) -> Color {
         self.color.clone()
@@ -197,9 +209,9 @@ pub struct BevyImage {
 // piet::ImageFormat) -> Self {         let data = buf.to_vec();
 //         let format = match format {
 //             piet::ImageFormat::Grayscale =>
-// bevy::render::render_resource::TextureFormat::R8Unorm,             
-// piet::ImageFormat::Rgb => unimplemented!(),             
-// piet::ImageFormat::RgbaSeparate => {                 
+// bevy::render::render_resource::TextureFormat::R8Unorm,
+// piet::ImageFormat::Rgb => unimplemented!(),
+// piet::ImageFormat::RgbaSeparate => {
 // bevy::render::render_resource::TextureFormat::Rgba8Unorm             }
 //             piet::ImageFormat::RgbaPremul => unimplemented!(),
 //             _ => unimplemented!(),
@@ -230,14 +242,14 @@ impl<'c> RenderContext<'c> {
     /// Create a new render context to draw on an existing canvas.
     pub fn new(canvas: &'c mut Canvas) -> Self {
         Self {
-            transform: Affine2::IDENTITY,
+            transform: Affine2::IDENTITY, // FIXME - unused
             canvas,
         }
     }
 
     /// Create a solid-color brush.
     pub fn solid_brush(&mut self, color: Color) -> Brush {
-        Brush { color }
+        color.into()
     }
 
     /// Clear an area of the render context with a specific color.
