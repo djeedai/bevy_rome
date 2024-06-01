@@ -1,3 +1,4 @@
+// FIXME : #import from Bevy itself...
 struct ColorGrading {
     exposure: f32,
     gamma: f32,
@@ -5,6 +6,7 @@ struct ColorGrading {
     post_saturation: f32,
 }
 
+// FIXME : #import from Bevy itself...
 struct View {
     view_proj: mat4x4<f32>,
     unjittered_view_proj: mat4x4<f32>,
@@ -23,6 +25,7 @@ struct View {
     render_layers: u32,
 };
 
+/// Serialized primitives buffer.
 struct Primitives {
     elems: array<f32>,
 };
@@ -31,7 +34,7 @@ struct Primitives {
 var<uniform> view: View;
 
 @group(1) @binding(0)
-var<storage> primitives: Primitives;
+var<storage, read> primitives: Primitives;
 
 #ifdef TEXTURED
 @group(2) @binding(0)

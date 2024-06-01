@@ -716,10 +716,10 @@ pub(crate) fn extract_primitives(
         }
 
         // Save extracted canvas
-        let extracted_canvas = extracted_canvases.entry(entity).or_insert(ExtractedCanvas {
-            transform: *transform,
-            ..Default::default()
-        });
+        let extracted_canvas = extracted_canvases
+            .entry(entity)
+            .or_insert(ExtractedCanvas::default());
+        extracted_canvas.transform = *transform;
         extracted_canvas.primitives = primitives;
         extracted_canvas.scale_factor = scale_factor;
         extracted_canvas.texts = extracted_texts;

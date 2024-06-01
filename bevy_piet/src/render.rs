@@ -427,10 +427,8 @@ pub(crate) fn extract_quads(
         let extracted_canvas = extracted_quads
             .canvases
             .entry(entity)
-            .or_insert(ExtractedCanvas {
-                transform: *transform,
-                ..Default::default()
-            });
+            .or_insert(ExtractedCanvas::default());
+        extracted_canvas.transform = *transform;
         extracted_canvas.quads.reserve(canvas.quads.len());
         trace!("canvas: {} quads", canvas.quads.len());
         for quad in &canvas.quads {

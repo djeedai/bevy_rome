@@ -76,7 +76,8 @@ impl Plugin for KeithPlugin {
                     schedule.add_systems(
                         (
                             render::extract_primitives,
-                            render::extract_primitive_events, // , text::extract_text_primitives
+                            render::extract_primitive_events,
+                            // text::extract_text_primitives
                         )
                             .in_set(KeithSystem::ExtractPrimitives)
                             .after(SpriteSystem::ExtractSprites),

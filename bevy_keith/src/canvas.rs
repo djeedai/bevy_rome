@@ -474,6 +474,8 @@ impl Canvas {
     }
 
     /// Change the dimensions of the canvas.
+    /// 
+    /// This is called automatically if the [`Canvas`] is on the same entity as an [`OrthographicProjection`].
     pub fn set_rect(&mut self, rect: Rect) {
         // if let Some(color) = self.background_color {
         //     if self.rect != rect {
@@ -575,6 +577,10 @@ impl Canvas {
 
 /// Update the dimensions of any [`Canvas`] component attached to the same
 /// entity as as an [`OrthographicProjection`] component.
+/// 
+/// This runs in the [`PreUpdate`] schedule.
+/// 
+/// [`PreUpdate`]: bevy::app::PreUpdate
 pub fn update_canvas_from_ortho_camera(mut query: Query<(&mut Canvas, &OrthographicProjection)>) {
     for (mut canvas, ortho) in query.iter_mut() {
         trace!("ortho canvas rect = {:?}", ortho.area);
