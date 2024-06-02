@@ -13,7 +13,6 @@ pub mod prelude {
 
 use bevy::prelude::*;
 use bevy::render::{Render, RenderSet};
-use bevy::sprite::SpriteSystem;
 use render::{
     DrawPrimitive, ExtractedCanvases, ImageBindGroups, PrimitiveAssetEvents, PrimitiveMeta,
     PrimitivePipeline,
@@ -42,6 +41,10 @@ pub(crate) const PRIMITIVE_SHADER_HANDLE: Handle<Shader> =
 pub enum KeithSystem {
     /// Label for [`text::process_glyphs()`].
     ProcessTextGlyphs,
+    /// Add [`Tiles`] and [`TileConfig`] component where missing.
+    AddTiles,
+    /// Assign primitives of each [`Canvas`] to its tile.
+    AssignPrimitivesToTiles,
     /// Label for [`render::extract_primitives()`].
     ExtractPrimitives,
 }
@@ -58,7 +61,22 @@ impl Plugin for KeithPlugin {
         app.register_type::<Canvas>()
             .init_resource::<KeithTextPipeline>()
             .add_systems(PreUpdate, canvas::update_canvas_from_ortho_camera)
-            .add_systems(PostUpdate, text::process_glyphs); //.after(ModifiesWindows),
+            .add_systems(PostUpdate, text::process_glyphs) //.after(ModifiesWindows),
+            .configure_sets(
+                PostUpdate,
+                (KeithSystem::AddTiles, KeithSystem::AssignPrimitivesToTiles).chain(),
+            )
+            .add_systems(
+                PostUpdate,
+                (
+                    canvas::add_tiles.in_set(KeithSystem::AddTiles),
+                    canvas::assign_primitives_to_tiles
+                        .in_set(KeithSystem::AssignPrimitivesToTiles)
+                        .after(bevy::transform::TransformSystem::TransformPropagate)
+                        .after(bevy::render::view::VisibilitySystems::CheckVisibility)
+                        .after(bevy::render::camera::CameraUpdateSystem),
+                ),
+            );
     }
 
     fn finish(&self, app: &mut App) {
@@ -80,21 +98,20 @@ impl Plugin for KeithPlugin {
                             // text::extract_text_primitives
                         )
                             .in_set(KeithSystem::ExtractPrimitives)
-                            .after(SpriteSystem::ExtractSprites),
+                            .after(bevy::sprite::SpriteSystem::ExtractSprites),
                     );
                 })
                 .add_systems(
                     Render,
-                    render::prepare_primitives
-                        .in_set(RenderSet::PrepareAssets)
-                        .after(KeithSystem::ExtractPrimitives)
-                        .after(bevy::text::extract_text2d_sprite),
-                )
-                .add_systems(
-                    Render,
-                    render::queue_primitives
-                        .in_set(RenderSet::Queue)
-                        .after(render::prepare_primitives),
+                    (
+                        render::prepare_primitives
+                            .in_set(RenderSet::PrepareAssets)
+                            .after(KeithSystem::ExtractPrimitives)
+                            .after(bevy::text::extract_text2d_sprite),
+                        render::queue_primitives
+                            .in_set(RenderSet::Queue)
+                            .after(render::prepare_primitives),
+                    ),
                 );
         };
     }
