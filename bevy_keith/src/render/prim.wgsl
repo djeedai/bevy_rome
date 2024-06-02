@@ -25,6 +25,12 @@ struct View {
     render_layers: u32,
 };
 
+// Keep in sync with GpuPrimitiveKind
+const PRIM_RECT: u32 = 0u;
+const PRIM_GLYPH: u32 = 1u;
+const PRIM_LINE: u32 = 2u;
+const PRIM_QUARTER_PIE: u32 = 3u;
+
 /// Serialized primitives buffer.
 struct Primitives {
     elems: array<f32>,
@@ -165,27 +171,37 @@ fn vertex(
     @builtin(vertex_index) vertex_index: u32,
 ) -> VertexOutput {
     let prim = unpack_index(vertex_index);
+
     var out: VertexOutput;
     out.radii = vec2<f32>(0.);
+
     var vertex_position: vec2<f32>;
-    if (prim.kind <= 1u) { // RECT or GLYPH
-        let rect = load_rect(prim.offset);
-        vertex_position = rect.pos + rect.size * prim.corner;
-        out.color = rect.color;
+    switch prim.kind {
+        case PRIM_RECT, PRIM_GLYPH {
+            let rect = load_rect(prim.offset);
+            vertex_position = rect.pos + rect.size * prim.corner;
+            out.color = rect.color;
 #ifdef TEXTURED
-        out.uv = rect.uv_pos + rect.uv_size * prim.corner;
+            out.uv = rect.uv_pos + rect.uv_size * prim.corner;
 #endif
-    } else if (prim.kind == 2u) { // LINE
-        let lin = load_line(prim.offset);
-        vertex_position = lin.origin + lin.dir * prim.corner.x + lin.normal * ((prim.corner.y - 0.5) * lin.thickness);
-        out.color = lin.color;
-    } else if (prim.kind == 3u) { // QUARTER PIE
-        let qpie = load_qpie(prim.offset);
-        vertex_position = qpie.origin + qpie.radii * prim.corner;
-        out.radii = prim.corner; //abs(qpie.radii);
-        //out.color = vec4<f32>(prim.corner, 0., 1.); // TEMP - for debugging //qpie.color;
-        out.color = qpie.color;
+        }
+        case PRIM_LINE {
+            let lin = load_line(prim.offset);
+            vertex_position = lin.origin + lin.dir * prim.corner.x + lin.normal * ((prim.corner.y - 0.5) * lin.thickness);
+            out.color = lin.color;
+        }
+        case PRIM_QUARTER_PIE {
+            let qpie = load_qpie(prim.offset);
+            vertex_position = qpie.origin + qpie.radii * prim.corner;
+            out.radii = prim.corner; //abs(qpie.radii);
+            //out.color = vec4<f32>(prim.corner, 0., 1.); // TEMP - for debugging //qpie.color;
+            out.color = qpie.color;
+        }
+        default {
+            vertex_position = vec2<f32>(1e38, 1e38);
+        }
     }
+    
     out.position = view.view_proj * vec4<f32>(vertex_position, 0.0, 1.0);
     return out;
 }
