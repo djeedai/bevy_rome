@@ -39,7 +39,7 @@ use bevy::{
 };
 
 use crate::{
-    canvas::{Canvas, PrimImpl, Primitive, PrimitiveInfo, TextPrimitive},
+    canvas::{Canvas, PrimImpl, Primitive, PrimitiveInfo, TextPrimitive, Tiles},
     text::CanvasTextId,
     PRIMITIVE_SHADER_HANDLE,
 };
@@ -433,16 +433,23 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
 pub struct ExtractedCanvas {
     /// Global transform of the canvas.
     pub transform: GlobalTransform,
+    /// Canvas rectangle relative to its origin.
+    pub rect: Rect,
     /// Collection of primitives rendered in this canvas.
     pub primitives: Vec<Primitive>,
     storage: Option<Buffer>,
     storage_capacity: usize,
     index_buffer: Option<Buffer>,
     index_buffer_capacity: usize,
+    tile_primitives_buffer: Option<Buffer>,
+    tile_primitives_buffer_capacity: usize,
+    offset_and_count_buffer: Option<Buffer>,
+    offset_and_count_buffer_capacity: usize,
     /// Scale factor of the window where this canvas is rendered.
     pub scale_factor: f32,
     /// Extracted data for all texts in use, in local text ID order.
     pub(crate) texts: Vec<ExtractedText>,
+    pub(crate) tiles: Tiles,
 }
 
 impl ExtractedCanvas {
@@ -499,6 +506,52 @@ impl ExtractedCanvas {
         } else if let Some(index_buffer) = &self.index_buffer {
             // Write directly to existing GPU buffer
             render_queue.write_buffer(index_buffer, 0, contents);
+        }
+
+        // Tile primitives buffer
+        let size = self.tiles.primitives.len(); // FIXME - cap size to reasonable value
+        let contents = bytemuck::cast_slice(&self.tiles.primitives[..]);
+        if size > self.tile_primitives_buffer_capacity {
+            // GPU buffer too small; reallocated...
+            trace!(
+                "Reallocate canvas_tile_primitive_buffer: {} -> {}",
+                self.tile_primitives_buffer_capacity,
+                size
+            );
+            self.tile_primitives_buffer = Some(render_device.create_buffer_with_data(
+                &BufferInitDescriptor {
+                    label: Some("canvas_tile_primitive_buffer"),
+                    usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+                    contents,
+                },
+            ));
+            self.tile_primitives_buffer_capacity = size;
+        } else if let Some(tile_primitives_buffer) = &self.tile_primitives_buffer {
+            // Write directly to existing GPU buffer
+            render_queue.write_buffer(tile_primitives_buffer, 0, contents);
+        }
+
+        // Offset and count buffer
+        let size = self.tiles.offset_and_count.len() * 2; // FIXME - cap size to reasonable value
+        let contents = bytemuck::cast_slice(&self.tiles.offset_and_count[..]);
+        if size > self.offset_and_count_buffer_capacity {
+            // GPU buffer too small; reallocated...
+            trace!(
+                "Reallocate canvas_offset_and_count_buffer: {} -> {}",
+                self.offset_and_count_buffer_capacity,
+                size
+            );
+            self.offset_and_count_buffer = Some(render_device.create_buffer_with_data(
+                &BufferInitDescriptor {
+                    label: Some("canvas_offset_and_count_buffer"),
+                    usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+                    contents,
+                },
+            ));
+            self.offset_and_count_buffer_capacity = size;
+        } else if let Some(offset_and_count_buffer) = &self.offset_and_count_buffer {
+            // Write directly to existing GPU buffer
+            render_queue.write_buffer(offset_and_count_buffer, 0, contents);
         }
     }
 
@@ -595,7 +648,15 @@ pub(crate) fn extract_primitives(
     mut extracted_canvases: ResMut<ExtractedCanvases>,
     texture_atlases: Extract<Res<Assets<TextureAtlasLayout>>>,
     q_window: Extract<Query<&Window, With<PrimaryWindow>>>,
-    canvas_query: Extract<Query<(Entity, Option<&ViewVisibility>, &Canvas, &GlobalTransform)>>,
+    canvas_query: Extract<
+        Query<(
+            Entity,
+            Option<&ViewVisibility>,
+            &Canvas,
+            &GlobalTransform,
+            &Tiles,
+        )>,
+    >,
 ) {
     trace!("extract_primitives");
 
@@ -610,7 +671,7 @@ pub(crate) fn extract_primitives(
 
     extracted_canvases.clear();
 
-    for (entity, maybe_computed_visibility, canvas, transform) in canvas_query.iter() {
+    for (entity, maybe_computed_visibility, canvas, transform, tiles) in canvas_query.iter() {
         // Skip hidden canvases. If no ComputedVisibility component is present, assume
         // visible.
         if !maybe_computed_visibility.map_or(true, |cvis| cvis.get()) {
@@ -720,9 +781,11 @@ pub(crate) fn extract_primitives(
             .entry(entity)
             .or_insert(ExtractedCanvas::default());
         extracted_canvas.transform = *transform;
+        extracted_canvas.rect = canvas.rect();
         extracted_canvas.primitives = primitives;
         extracted_canvas.scale_factor = scale_factor;
         extracted_canvas.texts = extracted_texts;
+        extracted_canvas.tiles = tiles.clone();
     }
 }
 
@@ -846,10 +909,11 @@ pub(crate) fn prepare_primitives(
 
     for (entity, extracted_canvas) in extracted_canvases {
         trace!(
-            "Canvas on Entity {:?} has {} primitives and {} texts",
+            "Canvas on Entity {:?} has {} primitives and {} texts, tile size {:?}",
             entity,
             extracted_canvas.primitives.len(),
             extracted_canvas.texts.len(),
+            extracted_canvas.tiles.tile_size,
         );
 
         let mut primitives = vec![];

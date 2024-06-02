@@ -2,14 +2,25 @@ use std::mem::MaybeUninit;
 
 use bevy::{
     asset::AssetId,
-    ecs::{component::Component, reflect::ReflectComponent, system::Query},
+    ecs::{
+        component::Component,
+        entity::Entity,
+        query::{With, Without},
+        reflect::ReflectComponent,
+        system::{Commands, Local, Query},
+    },
     log::trace,
-    math::{Rect, Vec2, Vec3},
+    math::{
+        bounding::{Aabb2d, IntersectsVolume},
+        Rect, UVec2, Vec2, Vec3,
+    },
     prelude::{BVec2, OrthographicProjection},
     reflect::Reflect,
-    render::{color::Color, texture::Image},
+    render::{camera::Camera, color::Color, primitives::Frustum, texture::Image},
+    transform::components::GlobalTransform,
     utils::default,
 };
+use bytemuck::{Pod, Zeroable};
 
 use crate::{
     render::ExtractedText,
@@ -102,6 +113,17 @@ pub enum Primitive {
     QuarterPie(QuarterPiePrimitive),
 }
 
+impl Primitive {
+    pub fn aabb(&self) -> Aabb2d {
+        match &self {
+            Primitive::Line(l) => l.aabb(),
+            Primitive::Rect(r) => r.aabb(),
+            Primitive::Text(t) => t.aabb(),
+            Primitive::QuarterPie(q) => q.aabb(),
+        }
+    }
+}
+
 impl From<LinePrimitive> for Primitive {
     fn from(line: LinePrimitive) -> Self {
         Self::Line(line)
@@ -159,6 +181,21 @@ pub struct LinePrimitive {
     pub end: Vec2,
     pub color: Color,
     pub thickness: f32,
+}
+
+impl LinePrimitive {
+    pub fn aabb(&self) -> Aabb2d {
+        let dir = (self.end - self.start).normalize();
+        let tg = Vec2::new(-dir.y, dir.x);
+        let e = self.thickness / 2.;
+        let p0 = self.start + tg * e;
+        let p1 = self.start - tg * e;
+        let p2 = self.end + tg * e;
+        let p3 = self.end - tg * e;
+        let min = p0.min(p1).min(p2).min(p3);
+        let max = p0.max(p1).max(p2).max(p3);
+        Aabb2d { min, max }
+    }
 }
 
 impl PrimImpl for LinePrimitive {
@@ -228,6 +265,13 @@ impl RectPrimitive {
     /// Number of indices per primitive (2 triangles).
     const INDEX_COUNT: u32 = 6;
 
+    pub fn aabb(&self) -> Aabb2d {
+        Aabb2d {
+            min: self.rect.min,
+            max: self.rect.max,
+        }
+    }
+
     pub fn center(&self) -> Vec3 {
         let c = (self.rect.min + self.rect.max) * 0.5;
         Vec3::new(c.x, c.y, 0.)
@@ -293,6 +337,14 @@ impl TextPrimitive {
     /// Number of indices used by each single glyph in the primitive index
     /// buffer.
     pub const INDEX_PER_GLYPH: u32 = 6;
+
+    pub fn aabb(&self) -> Aabb2d {
+        // TODO : verify what is self.rect, and that it bounds the text glyphs indeed
+        Aabb2d {
+            min: self.rect.min,
+            max: self.rect.max,
+        }
+    }
 }
 
 impl PrimImpl for TextPrimitive {
@@ -396,6 +448,13 @@ impl QuarterPiePrimitive {
     /// Number of indices per primitive (2 triangles).
     const INDEX_COUNT: u32 = 6;
 
+    pub fn aabb(&self) -> Aabb2d {
+        Aabb2d {
+            min: self.origin - self.radii,
+            max: self.origin + self.radii,
+        }
+    }
+
     /// The pie center.
     pub fn center(&self) -> Vec3 {
         self.origin.extend(0.)
@@ -474,8 +533,9 @@ impl Canvas {
     }
 
     /// Change the dimensions of the canvas.
-    /// 
-    /// This is called automatically if the [`Canvas`] is on the same entity as an [`OrthographicProjection`].
+    ///
+    /// This is called automatically if the [`Canvas`] is on the same entity as
+    /// an [`OrthographicProjection`].
     pub fn set_rect(&mut self, rect: Rect) {
         // if let Some(color) = self.background_color {
         //     if self.rect != rect {
@@ -577,13 +637,138 @@ impl Canvas {
 
 /// Update the dimensions of any [`Canvas`] component attached to the same
 /// entity as as an [`OrthographicProjection`] component.
-/// 
+///
 /// This runs in the [`PreUpdate`] schedule.
-/// 
+///
 /// [`PreUpdate`]: bevy::app::PreUpdate
 pub fn update_canvas_from_ortho_camera(mut query: Query<(&mut Canvas, &OrthographicProjection)>) {
     for (mut canvas, ortho) in query.iter_mut() {
         trace!("ortho canvas rect = {:?}", ortho.area);
         canvas.set_rect(ortho.area);
+    }
+}
+
+#[derive(Default, Clone, Copy, Component)]
+pub struct TileConfig {}
+
+#[derive(Debug, Default, Clone, Copy, Pod, Zeroable)]
+#[repr(C)]
+pub struct OffsetAndCount {
+    pub offset: u32,
+    pub count: u32,
+}
+
+#[derive(Default, Clone, Component)]
+pub struct Tiles {
+    /// Tile size, in pixels.
+    pub(crate) tile_size: UVec2,
+    /// Number of tiles.
+    ///
+    /// 4K, 8x8 => 129'600 tiles
+    /// 1080p, 8x8 => 32'400 tiles
+    pub(crate) dimensions: UVec2,
+    /// List of primitives per tile.
+    pub(crate) primitives: Vec<u32>,
+    /// Offset and count of primitives per tile.
+    pub(crate) offset_and_count: Vec<OffsetAndCount>,
+}
+
+impl Tiles {
+    pub fn update_size(&mut self, screen_size: UVec2) {
+        // We force a 8x8 pixel tile, which works well with 32- and 64- waves.
+        self.tile_size = UVec2::new(8, 8);
+
+        self.dimensions = (screen_size.as_vec2() / self.tile_size.as_vec2())
+            .ceil()
+            .as_uvec2();
+
+        assert!(self.dimensions.x * self.tile_size.x >= screen_size.x);
+        assert!(self.dimensions.y * self.tile_size.y >= screen_size.y);
+
+        self.primitives.clear();
+        self.offset_and_count.clear();
+        self.offset_and_count
+            .reserve(self.dimensions.x as usize * self.dimensions.y as usize);
+    }
+}
+
+/// Ensure any active [`Camera`] component with a [`Canvas`] component also has
+/// associated [`TileConfig`] and [`Tiles`] components.
+pub fn add_tiles(
+    mut commands: Commands,
+    cameras: Query<(Entity, Option<&TileConfig>, &Camera), (With<Canvas>, Without<Tiles>)>,
+) {
+    for (entity, config, camera) in &cameras {
+        if !camera.is_active {
+            continue;
+        }
+
+        let config = config.copied().unwrap_or_default();
+        commands.entity(entity).insert((Tiles::default(), config));
+    }
+}
+
+pub fn assign_primitives_to_tiles(
+    mut views: Query<(
+        Entity,
+        &Canvas,
+        &GlobalTransform,
+        &Camera,
+        &OrthographicProjection,
+        &Frustum,
+        &TileConfig,
+        &mut Tiles,
+    )>,
+    mut prim_aabbs: Local<Vec<Aabb2d>>,
+) {
+    // Loop on all camera views
+    for (_view_entity, canvas, _camera_transform, camera, proj, _frustum, _tile_config, tiles) in
+        &mut views
+    {
+        let Some(screen_size) = camera.physical_viewport_size() else {
+            continue;
+        };
+
+        // Resize tile storage to fit the viewport size
+        let tiles = tiles.into_inner();
+        tiles.update_size(screen_size);
+
+        // Calculate the AABBs of all primitives
+        prim_aabbs.clear();
+        prim_aabbs.reserve(canvas.primitives.len());
+        for prim in &canvas.primitives {
+            let mut aabb = prim.aabb();
+            aabb.min += proj.viewport_origin;
+            aabb.max += proj.viewport_origin;
+            prim_aabbs.push(aabb);
+        }
+
+        // Loop on tiles
+        let tile_size = tiles.tile_size.as_vec2();
+        for ty in 0..tiles.dimensions.y {
+            for tx in 0..tiles.dimensions.x {
+                let min = Vec2::new(tx as f32, ty as f32) * tile_size;
+                let max = min + tile_size;
+                let tile_aabb = Aabb2d { min, max };
+
+                let offset = tiles.primitives.len() as u32;
+
+                // Loop on all primitives to gather the ones affecting the current tile. We
+                // expect a lot more tiles than primitives for a standard 1080p or 4K screen
+                // resolution.
+                let mut prim_id = 0;
+                for prim_aabb in &prim_aabbs {
+                    if prim_aabb.intersects(&tile_aabb) {
+                        tiles.primitives.push(prim_id);
+                    }
+                    prim_id += 1;
+                }
+
+                let count = tiles.primitives.len() as u32 - offset;
+                tiles
+                    .offset_and_count
+                    .push(OffsetAndCount { offset, count });
+            }
+        }
     }
 }
