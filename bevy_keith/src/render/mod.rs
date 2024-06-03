@@ -13,6 +13,7 @@ use bevy::{
         },
         world::{FromWorld, World},
     },
+    math::bounding::{Aabb2d, IntersectsVolume},
     prelude::*,
     render::{
         render_asset::RenderAssets,
@@ -24,10 +25,10 @@ use bevy::{
             BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutEntry, BindingResource,
             BindingType, BlendState, Buffer, BufferBinding, BufferBindingType,
             BufferInitDescriptor, BufferSize, BufferUsages, ColorTargetState, ColorWrites,
-            FragmentState, FrontFace, IndexFormat, MultisampleState, PipelineCache, PolygonMode,
-            PrimitiveState, PrimitiveTopology, RenderPipelineDescriptor, SamplerBindingType,
-            ShaderStages, ShaderType, SpecializedRenderPipeline, SpecializedRenderPipelines,
-            TextureFormat, TextureSampleType, TextureViewDimension, VertexState,
+            FragmentState, FrontFace, MultisampleState, PipelineCache, PolygonMode, PrimitiveState,
+            PrimitiveTopology, RenderPipelineDescriptor, SamplerBindingType, ShaderStages,
+            ShaderType, SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat,
+            TextureSampleType, TextureViewDimension, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         texture::{BevyDefault, Image},
@@ -39,7 +40,7 @@ use bevy::{
 };
 
 use crate::{
-    canvas::{Canvas, PrimImpl, Primitive, PrimitiveInfo, TextPrimitive, Tiles},
+    canvas::{Canvas, OffsetAndCount, PrimImpl, Primitive, PrimitiveInfo, TextPrimitive, Tiles},
     text::CanvasTextId,
     PRIMITIVE_SHADER_HANDLE,
 };
@@ -177,19 +178,16 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
         let Some(primitive_batch) = primitive_batch else {
             return RenderCommandResult::Failure;
         };
+
         let primitive_meta = primitive_meta.into_inner();
-        if let Some(canvas_meta) = primitive_meta
+
+        if let Some(_canvas_meta) = primitive_meta
             .canvas_meta
             .get(&primitive_batch.canvas_entity)
         {
-            pass.set_index_buffer(
-                canvas_meta.index_buffer.slice(..),
-                0u64,
-                IndexFormat::Uint32,
-            );
-            let indices = primitive_batch.range.clone();
-            trace!("DrawPrimitiveBatch: indices={:?}", indices);
-            pass.draw_indexed(indices, 0, 0..1);
+            // Draw a single fullscreen triangle, implicitly defined by its vertex IDs
+            trace!("DrawPrimitiveBatch");
+            pass.draw(0..3, 0..1);
             RenderCommandResult::Success
         } else {
             error!(
@@ -249,7 +247,7 @@ struct CanvasMeta {
     canvas_entity: Entity,
     /// Bind group for the primitive buffer used by the canvas.
     primitive_bind_group: BindGroup,
-    /// Index buffer for drawing all the primitives of the entire canvas.
+    /// Vertex buffer containing the fullscreen quad to draw.
     index_buffer: Buffer,
 }
 
@@ -309,16 +307,38 @@ impl FromWorld for PrimitivePipeline {
 
         let prim_layout = render_device.create_bind_group_layout(
             "canvas_prim_layout",
-            &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(4_u64), // f32
+            &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: BufferSize::new(4_u64), // f32
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: BufferSize::new(4_u64), // u32
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: BufferSize::new(8_u64), // u32 * 2
+                    },
+                    count: None,
+                },
+            ],
         );
 
         let material_layout = render_device.create_bind_group_layout(
@@ -433,6 +453,8 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
 pub struct ExtractedCanvas {
     /// Global transform of the canvas.
     pub transform: GlobalTransform,
+    pub screen_size: UVec2,
+    pub canvas_origin: Vec2,
     /// Canvas rectangle relative to its origin.
     pub rect: Rect,
     /// Collection of primitives rendered in this canvas.
@@ -565,6 +587,28 @@ impl ExtractedCanvas {
             })
         })
     }
+
+    #[inline]
+    pub fn tile_primitives_binding(&self) -> Option<BindingResource> {
+        self.tile_primitives_buffer.as_ref().map(|buffer| {
+            BindingResource::Buffer(BufferBinding {
+                buffer: &buffer,
+                offset: 0,
+                size: None,
+            })
+        })
+    }
+
+    #[inline]
+    pub fn offset_and_count_binding(&self) -> Option<BindingResource> {
+        self.offset_and_count_buffer.as_ref().map(|buffer| {
+            BindingResource::Buffer(BufferBinding {
+                buffer: &buffer,
+                offset: 0,
+                size: None,
+            })
+        })
+    }
 }
 
 /// Resource attached to the render world and containing all the data extracted
@@ -652,6 +696,8 @@ pub(crate) fn extract_primitives(
         Query<(
             Entity,
             Option<&ViewVisibility>,
+            &Camera,
+            &OrthographicProjection,
             &Canvas,
             &GlobalTransform,
             &Tiles,
@@ -671,20 +717,31 @@ pub(crate) fn extract_primitives(
 
     extracted_canvases.clear();
 
-    for (entity, maybe_computed_visibility, canvas, transform, tiles) in canvas_query.iter() {
+    for (entity, maybe_computed_visibility, camera, proj, canvas, transform, tiles) in
+        canvas_query.iter()
+    {
         // Skip hidden canvases. If no ComputedVisibility component is present, assume
         // visible.
         if !maybe_computed_visibility.map_or(true, |cvis| cvis.get()) {
             continue;
         }
 
+        // Get screen size of camera, to calculate number of tiles to allocate
+        let Some(screen_size) = camera.physical_viewport_size() else {
+            continue;
+        };
+
         // Swap render and main app primitive buffer
         let primitives = canvas.buffer().clone();
         trace!(
-            "Canvas on Entity {:?} has {} primitives and {} text layouts",
+            "Canvas on Entity {:?} has {} primitives and {} text layouts, viewport_origin={:?}, viewport_area={:?}, scale_factor={}, proj.scale={}",
             entity,
             primitives.len(),
             canvas.text_layouts().len(),
+            proj.viewport_origin,
+            proj.area,
+            scale_factor,
+            proj.scale
         );
         if primitives.is_empty() {
             continue;
@@ -781,6 +838,8 @@ pub(crate) fn extract_primitives(
             .entry(entity)
             .or_insert(ExtractedCanvas::default());
         extracted_canvas.transform = *transform;
+        extracted_canvas.screen_size = screen_size;
+        extracted_canvas.canvas_origin = -proj.area.min * scale_factor; // in physical pixels
         extracted_canvas.rect = canvas.rect();
         extracted_canvas.primitives = primitives;
         extracted_canvas.scale_factor = scale_factor;
@@ -877,6 +936,13 @@ macro_rules! trace_list {
     };
 }
 
+pub(crate) struct PreparedPrimitive {
+    /// AABB in canvas space, for tile assignment.
+    pub aabb: Aabb2d,
+    /// Base index into primitive buffer.
+    pub base_index: u32,
+}
+
 pub(crate) fn prepare_primitives(
     mut commands: Commands,
     mut extracted_canvases: ResMut<ExtractedCanvases>,
@@ -886,6 +952,7 @@ pub(crate) fn prepare_primitives(
     mut image_bind_groups: ResMut<ImageBindGroups>,
     primitive_pipeline: Res<PrimitivePipeline>,
     events: Res<PrimitiveAssetEvents>,
+    mut prepared_primitives: Local<Vec<PreparedPrimitive>>,
 ) {
     trace!("prepare_primitives");
 
@@ -907,17 +974,22 @@ pub(crate) fn prepare_primitives(
 
     let extracted_canvases = &mut extracted_canvases.canvases;
 
+    // Loop on all extracted canvases to process their primitives
     for (entity, extracted_canvas) in extracted_canvases {
         trace!(
-            "Canvas on Entity {:?} has {} primitives and {} texts, tile size {:?}",
+            "Canvas on Entity {:?} has {} primitives and {} texts, tile size {:?}, canvas_origin={:?}",
             entity,
             extracted_canvas.primitives.len(),
             extracted_canvas.texts.len(),
             extracted_canvas.tiles.tile_size,
+            extracted_canvas.canvas_origin,
         );
 
         let mut primitives = vec![];
         let mut indices = vec![];
+
+        prepared_primitives.clear();
+        prepared_primitives.reserve(extracted_canvas.primitives.len());
 
         // Serialize primitives into a binary float32 array, to work around the fact
         // wgpu doesn't have byte arrays. And f32 being the most common type of
@@ -929,14 +1001,20 @@ pub(crate) fn prepare_primitives(
         let mut current_batch = PrimitiveBatch::invalid();
         for prim in &extracted_canvas.primitives {
             let base_index = primitives.len() as u32;
-            trace!("+ Primitive @ base_index={}", base_index);
+
+            let mut aabb = prim.aabb();
+            aabb.min += extracted_canvas.canvas_origin;
+            aabb.max += extracted_canvas.canvas_origin;
+            prepared_primitives.push(PreparedPrimitive { aabb, base_index });
+
+            trace!("+ Primitive @ base_index={} aabb={:?}", base_index, aabb);
 
             // Serialize the primitive
             let PrimitiveInfo {
                 row_count,
                 index_count,
             } = prim.info(&extracted_canvas.texts[..]);
-            trace!("=> rs={} is={}", row_count, index_count);
+            trace!("  row_count={} index_count={}", row_count, index_count);
             if row_count > 0 && index_count > 0 {
                 let row_count = row_count as usize;
                 let index_count = index_count as usize;
@@ -1111,7 +1189,39 @@ pub(crate) fn prepare_primitives(
         }
 
         // Upload to GPU buffers
-        if primitives.len() > 0 && indices.len() > 0 {
+        if !primitives.is_empty() && !indices.is_empty() {
+            // Assign primitives to tiles
+            let tile_size = extracted_canvas.tiles.tile_size.as_vec2();
+            for ty in 0..extracted_canvas.tiles.dimensions.y {
+                for tx in 0..extracted_canvas.tiles.dimensions.x {
+                    let min = Vec2::new(tx as f32, ty as f32) * tile_size;
+                    let max = min + tile_size;
+                    let tile_aabb = Aabb2d { min, max };
+
+                    let offset = extracted_canvas.tiles.primitives.len() as u32;
+
+                    // Loop on all primitives to gather the ones affecting the current tile. We
+                    // expect a lot more tiles than primitives for a standard 1080p or 4K screen
+                    // resolution.
+                    let mut count = 0;
+                    for prim in &prepared_primitives {
+                        if prim.aabb.intersects(&tile_aabb) {
+                            let base_index = prim.base_index;
+                            //let prim_aabb = prim.aabb;
+                            //trace!("Prim #{count} base_index={base_index} aabb={prim_aabb:?} overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
+                            extracted_canvas.tiles.primitives.push(base_index);
+                            count += 1;
+                        }
+                    }
+
+                    extracted_canvas
+                        .tiles
+                        .offset_and_count
+                        .push(OffsetAndCount { offset, count });
+                }
+            }
+
+            // Write GPU buffers
             trace!(
                 "Writing {} elems and {} indices for Canvas of entity {:?}",
                 primitives.len(),
@@ -1201,10 +1311,20 @@ pub fn queue_primitives(
         let primitive_bind_group = render_device.create_bind_group(
             "prim_bind_group",
             &primitive_pipeline.prim_layout,
-            &[BindGroupEntry {
-                binding: 0,
-                resource: extracted_canvas.binding().unwrap(),
-            }],
+            &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: extracted_canvas.binding().unwrap(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: extracted_canvas.tile_primitives_binding().unwrap(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: extracted_canvas.offset_and_count_binding().unwrap(),
+                },
+            ],
         );
         let index_buffer = extracted_canvas.index_buffer.as_ref().unwrap().clone();
 

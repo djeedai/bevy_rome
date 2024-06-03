@@ -654,7 +654,9 @@ pub struct TileConfig {}
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
 pub struct OffsetAndCount {
+    /// Base index into [`Tiles::primitives`].
     pub offset: u32,
+    /// Number of consecutive primitive offsets in [`Tiles::primitives`].
     pub count: u32,
 }
 
@@ -667,9 +669,13 @@ pub struct Tiles {
     /// 4K, 8x8 => 129'600 tiles
     /// 1080p, 8x8 => 32'400 tiles
     pub(crate) dimensions: UVec2,
-    /// List of primitives per tile.
+    /// Flattened list of primitive offsets for each tile. The start of a tile
+    /// is at element [`OffsetAndCount::offset`], and the tile contains
+    /// [`OffsetAndCount::count`] consecutive primitive offsets, each offset
+    /// being the start of the primitive into the primitive buffer of the
+    /// canvas.
     pub(crate) primitives: Vec<u32>,
-    /// Offset and count of primitives per tile.
+    /// Offset and count of primitives per tile, into [`Tiles::primitives`].
     pub(crate) offset_and_count: Vec<OffsetAndCount>,
 }
 
@@ -719,10 +725,9 @@ pub fn assign_primitives_to_tiles(
         &TileConfig,
         &mut Tiles,
     )>,
-    mut prim_aabbs: Local<Vec<Aabb2d>>,
 ) {
     // Loop on all camera views
-    for (_view_entity, canvas, _camera_transform, camera, proj, _frustum, _tile_config, tiles) in
+    for (_view_entity, _canvas, _camera_transform, camera, _proj, _frustum, _tile_config, tiles) in
         &mut views
     {
         let Some(screen_size) = camera.physical_viewport_size() else {
@@ -732,43 +737,5 @@ pub fn assign_primitives_to_tiles(
         // Resize tile storage to fit the viewport size
         let tiles = tiles.into_inner();
         tiles.update_size(screen_size);
-
-        // Calculate the AABBs of all primitives
-        prim_aabbs.clear();
-        prim_aabbs.reserve(canvas.primitives.len());
-        for prim in &canvas.primitives {
-            let mut aabb = prim.aabb();
-            aabb.min += proj.viewport_origin;
-            aabb.max += proj.viewport_origin;
-            prim_aabbs.push(aabb);
-        }
-
-        // Loop on tiles
-        let tile_size = tiles.tile_size.as_vec2();
-        for ty in 0..tiles.dimensions.y {
-            for tx in 0..tiles.dimensions.x {
-                let min = Vec2::new(tx as f32, ty as f32) * tile_size;
-                let max = min + tile_size;
-                let tile_aabb = Aabb2d { min, max };
-
-                let offset = tiles.primitives.len() as u32;
-
-                // Loop on all primitives to gather the ones affecting the current tile. We
-                // expect a lot more tiles than primitives for a standard 1080p or 4K screen
-                // resolution.
-                let mut prim_id = 0;
-                for prim_aabb in &prim_aabbs {
-                    if prim_aabb.intersects(&tile_aabb) {
-                        tiles.primitives.push(prim_id);
-                    }
-                    prim_id += 1;
-                }
-
-                let count = tiles.primitives.len() as u32 - offset;
-                tiles
-                    .offset_and_count
-                    .push(OffsetAndCount { offset, count });
-            }
-        }
     }
 }

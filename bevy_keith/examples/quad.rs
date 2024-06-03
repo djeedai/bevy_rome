@@ -7,6 +7,7 @@ use bevy_keith::*;
 
 fn main() {
     App::new()
+        .insert_resource(Msaa::Off)
         // Helper to exit with ESC key
         .add_systems(Update, bevy::window::close_on_esc)
         // Default plugins
