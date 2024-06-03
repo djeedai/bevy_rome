@@ -250,8 +250,6 @@ struct CanvasMeta {
     canvas_entity: Entity,
     /// Bind group for the primitive buffer used by the canvas.
     primitive_bind_group: BindGroup,
-    /// Vertex buffer containing the fullscreen quad to draw.
-    index_buffer: Buffer,
 }
 
 #[derive(Resource)]
@@ -468,8 +466,6 @@ pub struct ExtractedCanvas {
     pub primitives: Vec<Primitive>,
     storage: Option<Buffer>,
     storage_capacity: usize,
-    index_buffer: Option<Buffer>,
-    index_buffer_capacity: usize,
     tile_primitives_buffer: Option<Buffer>,
     tile_primitives_buffer_capacity: usize,
     offset_and_count_buffer: Option<Buffer>,
@@ -517,24 +513,6 @@ impl ExtractedCanvas {
         } else if let Some(storage) = &self.storage {
             // Write directly to existing GPU buffer
             render_queue.write_buffer(storage, 0, contents);
-        }
-
-        // Index buffer
-        let size = indices.len(); // FIXME - cap size to reasonable value
-        let contents = bytemuck::cast_slice(&indices[..]);
-        if size > self.index_buffer_capacity {
-            // GPU buffer too small; reallocated...
-            self.index_buffer = Some(render_device.create_buffer_with_data(
-                &BufferInitDescriptor {
-                    label: Some("keith:canvas_index_buffer"),
-                    usage: BufferUsages::COPY_DST | BufferUsages::INDEX,
-                    contents,
-                },
-            ));
-            self.index_buffer_capacity = size;
-        } else if let Some(index_buffer) = &self.index_buffer {
-            // Write directly to existing GPU buffer
-            render_queue.write_buffer(index_buffer, 0, contents);
         }
 
         // Tile primitives buffer
@@ -1286,10 +1264,6 @@ pub fn prepare_bind_groups(
                 continue;
             };
 
-        let Some(index_buffer) = extracted_canvas.index_buffer.as_ref() else {
-            continue;
-        };
-
         let (Some(prim), Some(tile_prim), Some(oc)) = (
             extracted_canvas.binding(),
             extracted_canvas.tile_primitives_binding(),
@@ -1318,21 +1292,18 @@ pub fn prepare_bind_groups(
         );
 
         // Update meta map
-        let index_buffer = index_buffer.clone();
         primitive_meta
             .canvas_meta
             .entry(canvas_entity)
             .and_modify(|canvas_meta| {
                 // Overwrite bind groups; any old one might reference a deallocated buffer
                 canvas_meta.primitive_bind_group = primitive_bind_group.clone();
-                canvas_meta.index_buffer = index_buffer.clone();
             })
             .or_insert_with(|| {
                 trace!("Adding new CanvasMeta: canvas_entity={:?}", canvas_entity);
                 CanvasMeta {
                     canvas_entity,
                     primitive_bind_group,
-                    index_buffer,
                 }
             });
 
