@@ -645,6 +645,7 @@ impl Canvas {
 ///
 /// [`PreUpdate`]: bevy::app::PreUpdate
 pub fn update_canvas_from_ortho_camera(mut query: Query<(&mut Canvas, &OrthographicProjection)>) {
+    trace!("PreUpdate: update_canvas_from_ortho_camera()");
     for (mut canvas, ortho) in query.iter_mut() {
         trace!("ortho canvas rect = {:?}", ortho.area);
         canvas.set_rect(ortho.area);
