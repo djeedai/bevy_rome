@@ -36,11 +36,33 @@ struct Primitives {
     elems: array<f32>,
 };
 
+/// Offset where the list of primitives for a tile starts,
+/// and number of consecutive primitives for that tile.
+struct OffsetAndCount {
+    /// Offset into Tile::primitives[].
+    offset: u32,
+    /// Number of consecutive primitive indices in Tile::primitives[].
+    count: u32,
+};
+
+struct Tiles {
+    /// Allocated number of primitives.
+    //count: atomic<u32>,
+    /// Indices of primitives.
+    primitives: array<u32>,
+};
+
 @group(0) @binding(0)
 var<uniform> view: View;
 
 @group(1) @binding(0)
 var<storage, read> primitives: Primitives;
+
+@group(1) @binding(1)
+var<storage, read> tiles: Tiles;
+
+@group(1) @binding(2)
+var<storage, read> offsets_and_counts: array<OffsetAndCount>;
 
 #ifdef TEXTURED
 @group(2) @binding(0)
@@ -51,11 +73,6 @@ var quad_sampler: sampler;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) color: vec4<f32>,
-    @location(1) radii: vec2<f32>,
-#ifdef TEXTURED
-    @location(2) uv: vec2<f32>,
-#endif
 };
 
 struct Primitive {
@@ -98,6 +115,35 @@ struct Line {
     thickness: f32,
 };
 
+const TILE_SIZE = vec2<f32>(8., 8.);
+
+/// Get the total number of tiles in the buffer.
+fn get_tile_count() -> u32 {
+    // By design the offset and count buffer has one entry per tile
+    return arrayLength(&offsets_and_counts);
+}
+
+fn get_tile_dim() -> vec2<u32> {
+    let xy = ceil(view.viewport.zw / TILE_SIZE);
+    return vec2<u32>(u32(xy.x), u32(xy.y));
+}
+
+struct Aabb {
+    min: vec2<f32>,
+    max: vec2<f32>,
+};
+
+/// Parse a primitive and return its AABB.
+fn read_aabb(offset: u32) -> Aabb {
+    var aabb = Aabb();
+    // switch primitives.elems[offset] {
+    //     case PRIM_RECT {
+    //         aabb.min 
+    //     }
+    // }
+    return aabb;
+}
+
 fn unpack_index(vertex_index: u32) -> Primitive {
     var p: Primitive;
     p.offset = (vertex_index & 0x00FFFFFFu);
@@ -133,6 +179,14 @@ fn load_rect(offset: u32) -> Rect {
     return rect;
 }
 
+fn advance_rect() -> u32 {
+#ifdef TEXTURED
+    return 9u;
+#else
+    return 5u;
+#endif
+}
+
 fn load_line(offset: u32) -> Line {
     let p0x = primitives.elems[offset];
     let p0y = primitives.elems[offset + 1u];
@@ -166,60 +220,59 @@ fn load_qpie(offset: u32) -> QPie {
     return qpie;
 }
 
+fn get_vertex_pos(vertex_index: u32) -> vec2<f32> {
+    switch vertex_index {
+        case 0u { return vec2<f32>(-1., -1.); }
+        case 1u { return vec2<f32>(3., -1.); }
+        case 2u { return vec2<f32>(-1., 3.); }
+        default { return vec2<f32>(1e38, 1e38); }
+    }
+}
+
+fn sdf_rect(base: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
+    let rect = load_rect(base);
+    let half_size = rect.size / 2.;
+    let center = rect.pos + half_size;
+    let delta = abs(canvas_pos - center) - half_size;
+    // Increase distance by a multiplier to make the transition sharper
+    let dist = max(delta.x, delta.y) * 3.; // width = 0.333
+    let alpha = smoothstep(rect.color.a, 0., dist);
+    return vec4<f32>(rect.color.rgb, alpha);
+}
+
 @vertex
 fn vertex(
     @builtin(vertex_index) vertex_index: u32,
 ) -> VertexOutput {
-    let prim = unpack_index(vertex_index);
-
     var out: VertexOutput;
-    out.radii = vec2<f32>(0.);
-
-    var vertex_position: vec2<f32>;
-    switch prim.kind {
-        case PRIM_RECT, PRIM_GLYPH {
-            let rect = load_rect(prim.offset);
-            vertex_position = rect.pos + rect.size * prim.corner;
-            out.color = rect.color;
-#ifdef TEXTURED
-            out.uv = rect.uv_pos + rect.uv_size * prim.corner;
-#endif
-        }
-        case PRIM_LINE {
-            let lin = load_line(prim.offset);
-            vertex_position = lin.origin + lin.dir * prim.corner.x + lin.normal * ((prim.corner.y - 0.5) * lin.thickness);
-            out.color = lin.color;
-        }
-        case PRIM_QUARTER_PIE {
-            let qpie = load_qpie(prim.offset);
-            vertex_position = qpie.origin + qpie.radii * prim.corner;
-            out.radii = prim.corner; //abs(qpie.radii);
-            //out.color = vec4<f32>(prim.corner, 0., 1.); // TEMP - for debugging //qpie.color;
-            out.color = qpie.color;
-        }
-        default {
-            vertex_position = vec2<f32>(1e38, 1e38);
-        }
-    }
-    
-    out.position = view.view_proj * vec4<f32>(vertex_position, 0.0, 1.0);
+    out.position = vec4<f32>(get_vertex_pos(vertex_index), 0.0, 1.0);
     return out;
 }
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    var color = in.color;
-#ifdef TEXTURED
-    let rgba = textureSample(quad_texture, quad_sampler, in.uv);
-    color = color * rgba;
-#endif
-    if (in.radii.x > 0.) {
-        let eps = 0.1;
-        let r2 = 1. - dot(in.radii, in.radii);
-        //color = vec4<f32>(r2, r2, r2, 1.);
-        let r = smoothstep(0., 1., (r2 + eps) / (2. * eps));
-        //color = vec4<f32>(r, r, r, 1.);
-        color.a = color.a * r;
+    // Find the tile this fragment is part of
+    let tile_pos = floor(in.position.xy / TILE_SIZE);
+    let tile_dim = get_tile_dim();
+    let tile_index = u32(tile_pos.y) * tile_dim.x + u32(tile_pos.x);
+
+    let canvas_pos = in.position.xy - view.viewport.zw / 2.;
+    var color = vec4<f32>();
+
+    // Loop over all primitives for that tile, and accumulate color
+    var prim_offset = offsets_and_counts[tile_index].offset;
+    let prim_count = offsets_and_counts[tile_index].count;
+    for (var i = prim_offset; i < prim_offset + prim_count; i += 1u) {
+        let base_index = tiles.primitives[i];
+        let prim_kind = PRIM_RECT; // TODO!!
+        switch prim_kind {
+            case PRIM_RECT {
+                let new_color = sdf_rect(base_index, canvas_pos);
+                color = mix(color, new_color, new_color.a);
+            }
+            default {}
+        }
     }
+
     return color;
 }
