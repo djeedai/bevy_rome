@@ -1002,6 +1002,9 @@ pub(crate) fn prepare_primitives(
         for prim in &extracted_canvas.primitives {
             let base_index = primitives.len() as u32;
 
+            // Calculate once and save the AABB of the primitive, for tile assignment
+            // purpose. Since there are many more tiles than primitives, it's worth doing
+            // that calculation only once ahead of time before looping over tiles.
             let mut aabb = prim.aabb();
             aabb.min += extracted_canvas.canvas_origin;
             aabb.max += extracted_canvas.canvas_origin;
@@ -1207,8 +1210,9 @@ pub(crate) fn prepare_primitives(
                     for prim in &prepared_primitives {
                         if prim.aabb.intersects(&tile_aabb) {
                             let base_index = prim.base_index;
-                            //let prim_aabb = prim.aabb;
-                            //trace!("Prim #{count} base_index={base_index} aabb={prim_aabb:?} overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
+                            // let prim_aabb = prim.aabb;
+                            // trace!("Prim #{count} base_index={base_index} aabb={prim_aabb:?}
+                            // overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
                             extracted_canvas.tiles.primitives.push(base_index);
                             count += 1;
                         }

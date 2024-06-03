@@ -87,12 +87,17 @@ struct Primitive {
 };
 
 struct Rect {
-    pos: vec2<f32>,
-    size: vec2<f32>,
+    /// Center point.
+    center: vec2<f32>,
+    /// Half extents.
+    half_size: vec2<f32>,
+    /// Color.
     color: vec4<f32>,
 #ifdef TEXTURED
-    uv_pos: vec2<f32>,
-    uv_size: vec2<f32>,
+    /// Origin of UV coordinates.
+    uv_origin: vec2<f32>,
+    /// Scale of UV coordinates.
+    uv_scale: vec2<f32>,
 #endif
 };
 
@@ -144,37 +149,26 @@ fn read_aabb(offset: u32) -> Aabb {
     return aabb;
 }
 
-fn unpack_index(vertex_index: u32) -> Primitive {
-    var p: Primitive;
-    p.offset = (vertex_index & 0x00FFFFFFu);
-    let cx = (vertex_index & 0x01000000u) >> 24u;
-    let cy = (vertex_index & 0x02000000u) >> 25u;
-    p.corner = vec2<f32>(f32(cx), f32(cy));
-    p.kind = (vertex_index & 0x1C000000u) >> 26u;
-    p.tex_index = (vertex_index & 0xE0000000u) >> 29u;
-    return p;
-}
-
 fn load_rect(offset: u32) -> Rect {
     let x = primitives.elems[offset];
     let y = primitives.elems[offset + 1u];
-    let w = primitives.elems[offset + 2u];
-    let h = primitives.elems[offset + 3u];
+    let hw = primitives.elems[offset + 2u];
+    let hh = primitives.elems[offset + 3u];
     let c = primitives.elems[offset + 4u];
 #ifdef TEXTURED
     let uv_x = primitives.elems[offset + 5u];
     let uv_y = primitives.elems[offset + 6u];
-    let uv_w = primitives.elems[offset + 7u];
-    let uv_h = primitives.elems[offset + 8u];
+    let uv_sx = primitives.elems[offset + 7u];
+    let uv_sy = primitives.elems[offset + 8u];
 #endif
     var rect: Rect;
-    rect.pos = vec2<f32>(x, y);
-    rect.size = vec2<f32>(w, h);
+    rect.center = vec2<f32>(x, y);
+    rect.half_size = vec2<f32>(hw, hh);
     let uc: u32 = bitcast<u32>(c);
     rect.color = unpack4x8unorm(uc);
 #ifdef TEXTURED
-    rect.uv_pos = vec2<f32>(uv_x, uv_y);
-    rect.uv_size = vec2<f32>(uv_w, uv_h);
+    rect.uv_origin = vec2<f32>(uv_x, uv_y);
+    rect.uv_scale = vec2<f32>(uv_sx, uv_sy);
 #endif
     return rect;
 }
@@ -231,9 +225,7 @@ fn get_vertex_pos(vertex_index: u32) -> vec2<f32> {
 
 fn sdf_rect(base: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
     let rect = load_rect(base);
-    let half_size = rect.size / 2.;
-    let center = rect.pos + half_size;
-    let delta = abs(canvas_pos - center) - half_size;
+    let delta = abs(canvas_pos - rect.center) - rect.half_size;
     // Increase distance by a multiplier to make the transition sharper
     let dist = max(delta.x, delta.y) * 3.; // width = 0.333
     let alpha = smoothstep(rect.color.a, 0., dist);
