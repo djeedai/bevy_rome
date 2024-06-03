@@ -7,13 +7,10 @@ use bevy::{
         entity::Entity,
         query::{With, Without},
         reflect::ReflectComponent,
-        system::{Commands, Local, Query},
+        system::{Commands, Query},
     },
     log::trace,
-    math::{
-        bounding::{Aabb2d, IntersectsVolume},
-        Rect, UVec2, Vec2, Vec3,
-    },
+    math::{bounding::Aabb2d, Rect, UVec2, Vec2, Vec3},
     prelude::{BVec2, OrthographicProjection},
     reflect::Reflect,
     render::{camera::Camera, color::Color, primitives::Frustum, texture::Image},
@@ -503,16 +500,25 @@ impl PrimImpl for QuarterPiePrimitive {
 
 /// Drawing surface for 2D graphics.
 ///
-/// If the component is attached to the same entity as an
-/// [`OrthographicProjection`], then its dimensions are automatically computed
-/// and updated based on that projection.
+/// This component should attached to the same entity as a [`Camera`] and an
+/// [`OrthographicProjection`].
+///
+/// By default the dimensions of the canvas are automatically computed and
+/// updated based on that projection.
 #[derive(Component, Debug, Default, Reflect)]
 #[reflect(Component)]
 pub struct Canvas {
     /// The canvas dimensions relative to its origin.
     rect: Rect,
     /// Optional background color to clear the canvas with.
-    background_color: Option<Color>,
+    ///
+    /// This only has an effect starting from the next [`clear()`] call. If a
+    /// background color is set, it's used to clear the canvas each frame.
+    /// Otherwise, the canvas retains its default transparent black color (0.0,
+    /// 0.0, 0.0, 0.0).
+    ///
+    /// [`clear()`]: crate::Canvas::clear
+    pub background_color: Option<Color>,
     /// Collection of drawn primitives.
     #[reflect(ignore)]
     primitives: Vec<Primitive>,
@@ -527,12 +533,6 @@ impl Canvas {
     /// Create a new canvas with given dimensions.
     pub fn new(rect: Rect) -> Self {
         Self { rect, ..default() }
-    }
-
-    /// Create a new canvas with dimensions calculated to cover the area of an
-    /// orthographic projection.
-    pub fn from_ortho(ortho: &OrthographicProjection) -> Self {
-        Self::new(ortho.area)
     }
 
     /// Change the dimensions of the canvas.
@@ -553,31 +553,18 @@ impl Canvas {
         self.rect
     }
 
-    /// Change the background color of the canvas.
-    ///
-    /// This only has an effect starting from the next [`clear()`] call.
-    ///
-    /// [`clear()`]: crate::canvas::Canvas::clear
-    pub fn set_background_color(&mut self, background_color: Option<Color>) {
-        self.background_color = background_color;
-    }
-
-    /// Get the current background color of the canvas.
-    pub fn background_color(&self) -> Option<Color> {
-        self.background_color
-    }
-
     /// Clear the canvas, discarding all primitives previously drawn on it.
     pub fn clear(&mut self) {
         self.primitives.clear();
         self.text_layouts.clear(); // FIXME - really?
-        if let Some(color) = self.background_color {
-            self.draw(RectPrimitive {
-                rect: self.rect,
-                color,
-                ..default()
-            });
-        }
+                                   // if let Some(color) = self.background_color
+                                   // {
+                                   //     self.draw(RectPrimitive {
+                                   //         rect: self.rect,
+                                   //         color,
+                                   //         ..default()
+                                   //     });
+                                   // }
     }
 
     /// Draw a new primitive onto the canvas.

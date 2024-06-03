@@ -50,7 +50,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         min: Vec2::splat(-400.),
         max: Vec2::splat(100.),
     });
-    canvas.set_background_color(Some(Color::BEIGE));
+    canvas.background_color = Some(Color::BEIGE);
     commands
         .spawn(Camera2dBundle::default())
         .insert(canvas)
