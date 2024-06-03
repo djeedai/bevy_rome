@@ -40,7 +40,10 @@ use bevy::{
 };
 
 use crate::{
-    canvas::{Canvas, OffsetAndCount, PrimImpl, Primitive, PrimitiveInfo, TextPrimitive, Tiles},
+    canvas::{
+        Canvas, OffsetAndCount, PrimImpl, Primitive, PrimitiveIndexAndKind, PrimitiveInfo,
+        TextPrimitive, Tiles,
+    },
     text::CanvasTextId,
     PRIMITIVE_SHADER_HANDLE,
 };
@@ -939,8 +942,8 @@ macro_rules! trace_list {
 pub(crate) struct PreparedPrimitive {
     /// AABB in canvas space, for tile assignment.
     pub aabb: Aabb2d,
-    /// Base index into primitive buffer.
-    pub base_index: u32,
+    /// Primitive index.
+    pub prim_index: PrimitiveIndexAndKind,
 }
 
 pub(crate) fn prepare_primitives(
@@ -1001,6 +1004,7 @@ pub(crate) fn prepare_primitives(
         let mut current_batch = PrimitiveBatch::invalid();
         for prim in &extracted_canvas.primitives {
             let base_index = primitives.len() as u32;
+            let prim_index = PrimitiveIndexAndKind::new(base_index, prim.gpu_kind());
 
             // Calculate once and save the AABB of the primitive, for tile assignment
             // purpose. Since there are many more tiles than primitives, it's worth doing
@@ -1008,7 +1012,7 @@ pub(crate) fn prepare_primitives(
             let mut aabb = prim.aabb();
             aabb.min += extracted_canvas.canvas_origin;
             aabb.max += extracted_canvas.canvas_origin;
-            prepared_primitives.push(PreparedPrimitive { aabb, base_index });
+            prepared_primitives.push(PreparedPrimitive { aabb, prim_index });
 
             trace!("+ Primitive @ base_index={} aabb={:?}", base_index, aabb);
 
@@ -1209,11 +1213,9 @@ pub(crate) fn prepare_primitives(
                     let mut count = 0;
                     for prim in &prepared_primitives {
                         if prim.aabb.intersects(&tile_aabb) {
-                            let base_index = prim.base_index;
-                            // let prim_aabb = prim.aabb;
                             // trace!("Prim #{count} base_index={base_index} aabb={prim_aabb:?}
                             // overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
-                            extracted_canvas.tiles.primitives.push(base_index);
+                            extracted_canvas.tiles.primitives.push(prim.prim_index);
                             count += 1;
                         }
                     }

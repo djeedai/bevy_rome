@@ -56,7 +56,7 @@ pub(crate) trait PrimImpl {
 /// shader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-enum GpuPrimitiveKind {
+pub enum GpuPrimitiveKind {
     /// Axis-aligned rectangle, possibly textured.
     Rect = 0,
     /// Text glyph. Same as `Rect`, but samples from texture's alpha instead of
@@ -111,8 +111,17 @@ pub enum Primitive {
 }
 
 impl Primitive {
+    pub fn gpu_kind(&self) -> GpuPrimitiveKind {
+        match self {
+            Primitive::Line(_) => GpuPrimitiveKind::Line,
+            Primitive::Rect(_) => GpuPrimitiveKind::Rect,
+            Primitive::Text(_) => GpuPrimitiveKind::Glyph,
+            Primitive::QuarterPie(_) => GpuPrimitiveKind::QuarterPie,
+        }
+    }
+
     pub fn aabb(&self) -> Aabb2d {
-        match &self {
+        match self {
             Primitive::Line(l) => l.aabb(),
             Primitive::Rect(r) => r.aabb(),
             Primitive::Text(t) => t.aabb(),
@@ -651,6 +660,18 @@ pub struct OffsetAndCount {
     pub count: u32,
 }
 
+/// Compacted primitive index and kind.
+#[derive(Debug, Default, Clone, Copy, Pod, Zeroable)]
+#[repr(transparent)]
+pub struct PrimitiveIndexAndKind(pub u32);
+
+impl PrimitiveIndexAndKind {
+    pub fn new(index: u32, kind: GpuPrimitiveKind) -> Self {
+        let value = (index & 0x0FFF_FFFF) | (kind as u32) << 28;
+        Self(value)
+    }
+}
+
 #[derive(Default, Clone, Component)]
 pub struct Tiles {
     /// Tile size, in pixels.
@@ -660,12 +681,12 @@ pub struct Tiles {
     /// 4K, 8x8 => 129'600 tiles
     /// 1080p, 8x8 => 32'400 tiles
     pub(crate) dimensions: UVec2,
-    /// Flattened list of primitive offsets for each tile. The start of a tile
+    /// Flattened list of primitive indices for each tile. The start of a tile
     /// is at element [`OffsetAndCount::offset`], and the tile contains
     /// [`OffsetAndCount::count`] consecutive primitive offsets, each offset
     /// being the start of the primitive into the primitive buffer of the
     /// canvas.
-    pub(crate) primitives: Vec<u32>,
+    pub(crate) primitives: Vec<PrimitiveIndexAndKind>,
     /// Offset and count of primitives per tile, into [`Tiles::primitives`].
     pub(crate) offset_and_count: Vec<OffsetAndCount>,
 }

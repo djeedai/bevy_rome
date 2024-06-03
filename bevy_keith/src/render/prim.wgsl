@@ -23,7 +23,7 @@ struct View {
     color_grading: ColorGrading,
     mip_bias: f32,
     render_layers: u32,
-};
+}
 
 // Keep in sync with GpuPrimitiveKind
 const PRIM_RECT: u32 = 0u;
@@ -34,7 +34,7 @@ const PRIM_QUARTER_PIE: u32 = 3u;
 /// Serialized primitives buffer.
 struct Primitives {
     elems: array<f32>,
-};
+}
 
 /// Offset where the list of primitives for a tile starts,
 /// and number of consecutive primitives for that tile.
@@ -43,14 +43,14 @@ struct OffsetAndCount {
     offset: u32,
     /// Number of consecutive primitive indices in Tile::primitives[].
     count: u32,
-};
+}
 
 struct Tiles {
     /// Allocated number of primitives.
     //count: atomic<u32>,
     /// Indices of primitives.
     primitives: array<u32>,
-};
+}
 
 @group(0) @binding(0)
 var<uniform> view: View;
@@ -84,7 +84,7 @@ struct Primitive {
     corner: vec2<f32>,
     /// Texture index.
     tex_index: u32,
-};
+}
 
 struct Rect {
     /// Center point.
@@ -101,13 +101,13 @@ struct Rect {
     /// Scale of UV coordinates.
     uv_scale: vec2<f32>,
 #endif
-};
+}
 
 struct QPie {
     origin: vec2<f32>,
     radii: vec2<f32>,
     color: vec4<f32>,
-};
+}
 
 struct Line {
     /// Line origin.
@@ -120,7 +120,7 @@ struct Line {
     color: vec4<f32>,
     /// Line thickness, in the direction of the normal.
     thickness: f32,
-};
+}
 
 const TILE_SIZE = vec2<f32>(8., 8.);
 
@@ -135,20 +135,15 @@ fn get_tile_dim() -> vec2<u32> {
     return vec2<u32>(u32(xy.x), u32(xy.y));
 }
 
-struct Aabb {
-    min: vec2<f32>,
-    max: vec2<f32>,
-};
+struct IndexAndKind {
+    index: u32,
+    kind: u32,
+}
 
-/// Parse a primitive and return its AABB.
-fn read_aabb(offset: u32) -> Aabb {
-    var aabb = Aabb();
-    // switch primitives.elems[offset] {
-    //     case PRIM_RECT {
-    //         aabb.min 
-    //     }
-    // }
-    return aabb;
+fn unpack_index_and_kind(value: u32) -> IndexAndKind {
+    let index = (value & 0x0FFFFFFFu);
+    let kind = (value & 0xF0000000u) >> 28u;
+    return IndexAndKind(index, kind);
 }
 
 fn load_rect(offset: u32) -> Rect {
@@ -222,11 +217,23 @@ fn get_vertex_pos(vertex_index: u32) -> vec2<f32> {
 fn sdf_rect(base: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
     let rect = load_rect(base);
     let delta = abs(canvas_pos - rect.center) - rect.half_size + rect.radius;
-    // Increase distance by a multiplier to make the transition sharper
     let dist = length(max(delta, vec2<f32>(0))) + max(min(delta.x, 0.), min(delta.y, 0.)) - rect.radius;
     let ratio = dist + 0.5; // pixel center is at 0.5 from actual border
     let alpha = smoothstep(rect.color.a, 0., ratio);
     return vec4<f32>(rect.color.rgb, alpha);
+}
+
+fn sdf_line(base: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
+    let line = load_line(base);
+    let d = normalize(line.dir);
+    let center = line.origin + line.dir / 2.;
+    let delta = canvas_pos - center;
+    let rd = mat2x2<f32>(d.x, -d.y, d.y, d.x) * delta;
+    let delta2 = abs(rd) - vec2<f32>(length(line.dir), line.thickness) * 0.5;
+    let dist = length(max(delta2, vec2<f32>(0))) + max(min(delta2.x, 0.), min(delta2.y, 0.));
+    let ratio = dist + 0.5; // pixel center is at 0.5 from actual border
+    let alpha = smoothstep(line.color.a, 0., ratio);
+    return vec4<f32>(line.color.rgb, alpha);
 }
 
 @vertex
@@ -252,11 +259,18 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var prim_offset = offsets_and_counts[tile_index].offset;
     let prim_count = offsets_and_counts[tile_index].count;
     for (var i = prim_offset; i < prim_offset + prim_count; i += 1u) {
-        let base_index = tiles.primitives[i];
-        let prim_kind = PRIM_RECT; // TODO!!
-        switch prim_kind {
+        let index_and_kind = unpack_index_and_kind(tiles.primitives[i]);
+        switch index_and_kind.kind {
             case PRIM_RECT {
-                let new_color = sdf_rect(base_index, canvas_pos);
+                let new_color = sdf_rect(index_and_kind.index, canvas_pos);
+                color = mix(color, new_color, new_color.a);
+            }
+            case PRIM_GLYPH {
+                let new_color = sdf_rect(index_and_kind.index, canvas_pos);
+                color = mix(color, new_color, new_color.a);
+            }
+            case PRIM_LINE {
+                let new_color = sdf_line(index_and_kind.index, canvas_pos);
                 color = mix(color, new_color, new_color.a);
             }
             default {}

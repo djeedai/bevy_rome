@@ -276,6 +276,9 @@ impl<'c> RenderContext<'c> {
     }
 
     /// Draw a line between two points with the given brush.
+    ///
+    /// The line thickness is centered on the mathematical line between the two
+    /// endpoints, spanning `thickness / 2.` on each side.
     pub fn line(&mut self, p0: Vec2, p1: Vec2, brush: &Brush, thickness: f32) {
         self.canvas.draw(LinePrimitive {
             start: p0,
