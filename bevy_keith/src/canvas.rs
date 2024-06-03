@@ -304,14 +304,18 @@ impl PrimImpl for RectPrimitive {
         _scale_factor: f32,
     ) {
         assert_eq!(self.row_count() as usize, prim.len());
-        prim[0].write(self.rect.min.x);
-        prim[1].write(self.rect.min.y);
-        prim[2].write(self.rect.max.x - self.rect.min.x);
-        prim[3].write(self.rect.max.y - self.rect.min.y);
+        let half_min = self.rect.min * 0.5;
+        let half_max = self.rect.max * 0.5;
+        let center = half_min + half_max;
+        let half_size = half_max - half_min;
+        prim[0].write(center.x);
+        prim[1].write(center.y);
+        prim[2].write(half_size.x);
+        prim[3].write(half_size.y);
         prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
         if self.image.is_some() {
-            prim[5].write(0.);
-            prim[6].write(1.);
+            prim[5].write(0.5);
+            prim[6].write(0.5);
             prim[7].write(1.);
             prim[8].write(-1.);
         }
