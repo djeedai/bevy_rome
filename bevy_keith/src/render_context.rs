@@ -299,6 +299,7 @@ impl<'c> RenderContext<'c> {
     pub fn draw_image(&mut self, shape: Rect, image: Handle<Image>) {
         self.canvas.draw(RectPrimitive {
             rect: shape,
+            radius: 0.,
             color: Color::WHITE,
             flip_x: false,
             flip_y: false,

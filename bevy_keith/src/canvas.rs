@@ -229,10 +229,14 @@ impl PrimImpl for LinePrimitive {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct RectPrimitive {
     /// Position and size of the rectangle in its canvas space.
+    ///
+    /// For rounded rectangles, this is the AABB (the radius is included).
     pub rect: Rect,
+    /// Rounded corners radius.
+    pub radius: f32,
     /// Uniform rectangle color.
     pub color: Color,
     /// Flip the image (if any) along the horizontal axis.
@@ -244,23 +248,11 @@ pub struct RectPrimitive {
     pub image: Option<AssetId<Image>>, // Handle<Image>
 }
 
-impl Default for RectPrimitive {
-    fn default() -> Self {
-        Self {
-            rect: Rect::default(),
-            color: Color::default(),
-            flip_x: false,
-            flip_y: false,
-            image: None,
-        }
-    }
-}
-
 impl RectPrimitive {
     /// Number of primitive buffer rows (4 bytes) per primitive.
-    const ROW_COUNT: u32 = 5;
+    const ROW_COUNT: u32 = 6;
     /// Number of primitive buffer rows (4 bytes) per primitive when textured.
-    const ROW_COUNT_TEX: u32 = 9;
+    const ROW_COUNT_TEX: u32 = 10;
 
     /// Number of indices per primitive (2 triangles).
     const INDEX_COUNT: u32 = 6;
@@ -303,7 +295,13 @@ impl PrimImpl for RectPrimitive {
         idx: &mut [MaybeUninit<u32>],
         _scale_factor: f32,
     ) {
-        assert_eq!(self.row_count() as usize, prim.len());
+        assert_eq!(
+            self.row_count() as usize,
+            prim.len(),
+            "Invalid buffer size {} to write RectPrimitive (needs {})",
+            prim.len(),
+            self.row_count()
+        );
         let half_min = self.rect.min * 0.5;
         let half_max = self.rect.max * 0.5;
         let center = half_min + half_max;
@@ -312,12 +310,13 @@ impl PrimImpl for RectPrimitive {
         prim[1].write(center.y);
         prim[2].write(half_size.x);
         prim[3].write(half_size.y);
-        prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
+        prim[4].write(self.radius);
+        prim[5].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
         if self.image.is_some() {
-            prim[5].write(0.5);
             prim[6].write(0.5);
-            prim[7].write(1.);
-            prim[8].write(-1.);
+            prim[7].write(0.5);
+            prim[8].write(1.);
+            prim[9].write(-1.);
         }
         assert_eq!(6, idx.len());
         for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {

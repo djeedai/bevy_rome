@@ -91,6 +91,8 @@ struct Rect {
     center: vec2<f32>,
     /// Half extents.
     half_size: vec2<f32>,
+    /// Corners radius.
+    radius: f32,
     /// Color.
     color: vec4<f32>,
 #ifdef TEXTURED
@@ -154,16 +156,18 @@ fn load_rect(offset: u32) -> Rect {
     let y = primitives.elems[offset + 1u];
     let hw = primitives.elems[offset + 2u];
     let hh = primitives.elems[offset + 3u];
-    let c = primitives.elems[offset + 4u];
+    let r = primitives.elems[offset + 4u];
+    let c = primitives.elems[offset + 5u];
 #ifdef TEXTURED
-    let uv_x = primitives.elems[offset + 5u];
-    let uv_y = primitives.elems[offset + 6u];
-    let uv_sx = primitives.elems[offset + 7u];
-    let uv_sy = primitives.elems[offset + 8u];
+    let uv_x = primitives.elems[offset + 6u];
+    let uv_y = primitives.elems[offset + 7u];
+    let uv_sx = primitives.elems[offset + 8u];
+    let uv_sy = primitives.elems[offset + 9u];
 #endif
     var rect: Rect;
     rect.center = vec2<f32>(x, y);
     rect.half_size = vec2<f32>(hw, hh);
+    rect.radius = r;
     let uc: u32 = bitcast<u32>(c);
     rect.color = unpack4x8unorm(uc);
 #ifdef TEXTURED
@@ -171,14 +175,6 @@ fn load_rect(offset: u32) -> Rect {
     rect.uv_scale = vec2<f32>(uv_sx, uv_sy);
 #endif
     return rect;
-}
-
-fn advance_rect() -> u32 {
-#ifdef TEXTURED
-    return 9u;
-#else
-    return 5u;
-#endif
 }
 
 fn load_line(offset: u32) -> Line {
@@ -225,10 +221,11 @@ fn get_vertex_pos(vertex_index: u32) -> vec2<f32> {
 
 fn sdf_rect(base: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
     let rect = load_rect(base);
-    let delta = abs(canvas_pos - rect.center) - rect.half_size;
+    let delta = abs(canvas_pos - rect.center) - rect.half_size + rect.radius;
     // Increase distance by a multiplier to make the transition sharper
-    let dist = max(delta.x, delta.y) * 3.; // width = 0.333
-    let alpha = smoothstep(rect.color.a, 0., dist);
+    let dist = length(max(delta, vec2<f32>(0))) + max(min(delta.x, 0.), min(delta.y, 0.)) - rect.radius;
+    let ratio = dist + 0.5; // pixel center is at 0.5 from actual border
+    let alpha = smoothstep(rect.color.a, 0., ratio);
     return vec4<f32>(rect.color.rgb, alpha);
 }
 
