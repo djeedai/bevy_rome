@@ -5,7 +5,6 @@
 [![Crate](https://img.shields.io/crates/v/bevy_keith.svg)](https://crates.io/crates/bevy_keith)
 [![Bevy tracking](https://img.shields.io/badge/Bevy%20tracking-v0.8-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
 
-
 2D graphic library inspired by Piet (📦 [`piet`](https://crates.io/crates/piet)) for the [Bevy game engine](https://bevyengine.org/).
 
 Currently a purely immediate-mode library, but with future plans to explore partial retaining to reduce CPU usage.
@@ -39,7 +38,7 @@ let mut canvas = Canvas::new(Rect {
 });
 
 // Optionally clear the canvas with a given color before drawing
-canvas.set_background_color(Some(Color::BEIGE));
+canvas.background_color = Some(Color::BEIGE);
 
 // Spawn on the same Entity as an OrthographicProjection for auto-resize
 commands

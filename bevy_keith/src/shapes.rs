@@ -8,7 +8,13 @@ use crate::{
 
 /// Abstraction of a shape to draw on a [`Canvas`].
 pub trait Shape {
+    /// Fill the shape with the given [`Brush`].
     fn fill(&self, canvas: &mut Canvas, brush: &Brush);
+
+    /// Stroke the shape with the given [`Brush`] and thickness.
+    ///
+    /// This produces a stroke of the given thickness matching the underlying
+    /// shape. The stroke is centered on the shape's edge.
     fn stroke(&self, canvas: &mut Canvas, brush: &Brush, thickness: f32);
 }
 
@@ -64,7 +70,7 @@ impl Shape for Rect {
     }
 }
 
-/// Rounded rectangle shape with separate radius in each direction.
+/// Rounded rectangle shape.
 pub struct RoundedRect {
     /// The rectangle itself.
     pub rect: Rect,
