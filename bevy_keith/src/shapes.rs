@@ -68,23 +68,15 @@ impl Shape for Rect {
 pub struct RoundedRect {
     /// The rectangle itself.
     pub rect: Rect,
-    /// The radii of the corners in the X and Y directions.
-    pub radii: Vec2,
+    /// The radius of the corners.
+    pub radius: f32,
 }
 
 impl Shape for RoundedRect {
     fn fill(&self, canvas: &mut Canvas, brush: &Brush) {
-        if self.radii.cmple(Vec2::ZERO).all() {
-            // canvas.fill(...) // TODO
-            return;
-        }
-
-        let half_size = self.rect.half_size();
-        let radii = self.radii.min(half_size);
-
         canvas.draw(RectPrimitive {
             rect: self.rect,
-            radius: radii.x.min(radii.y), // TODO
+            radius: self.radius,
             color: brush.color(),
             flip_x: false,
             flip_y: false,
@@ -96,7 +88,7 @@ impl Shape for RoundedRect {
         let eps = thickness / 2.;
         let color = brush.color();
         let half_size = self.rect.half_size();
-        let radii = self.radii.min(half_size);
+        let radii = Vec2::splat(self.radius).min(half_size);
 
         // Top
         let mut prim = RectPrimitive {

@@ -7,6 +7,8 @@ use bevy_keith::*;
 
 fn main() {
     App::new()
+        // MSAA is useless for SDF rendering in the absence of alpha-to-coverage, which is disabled
+        // in the 2D pipeline of Bevy
         .insert_resource(Msaa::Off)
         // Helper to exit with ESC key
         .add_systems(Update, bevy::window::close_on_esc)
@@ -142,11 +144,14 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     ctx.fill(rect, &brush);
 
     let brush = ctx.solid_brush(Color::PINK);
-    let rect = Rect {
-        min: Vec2::ZERO,
-        max: Vec2::splat(50.),
+    let rounded_rect = RoundedRect {
+        rect: Rect {
+            min: Vec2::ZERO,
+            max: Vec2::splat(50.),
+        },
+        radius: 8.,
     };
-    ctx.fill(rect, &brush);
+    ctx.fill(rounded_rect, &brush);
 
     let text = ctx
         .new_layout("Hello World!")
