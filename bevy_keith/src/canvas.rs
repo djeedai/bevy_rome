@@ -321,8 +321,8 @@ impl PrimImpl for RectPrimitive {
         if self.image.is_some() {
             prim[6].write(0.5);
             prim[7].write(0.5);
-            prim[8].write(1.);
-            prim[9].write(-1.);
+            prim[8].write(1. / 16.); // FIXME - hardcoded image size + mapping (scale 1:1, fit to rect, etc.)
+            prim[9].write(1. / 16.); // FIXME - hardcoded image size + mapping (scale 1:1, fit to rect, etc.)
         }
         assert_eq!(6, idx.len());
         for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {

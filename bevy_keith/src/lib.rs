@@ -110,7 +110,12 @@ impl Plugin for KeithPlugin {
                             .after(bevy::text::extract_text2d_sprite),
                         render::queue_primitives
                             .in_set(RenderSet::Queue)
-                            .after(render::prepare_primitives),
+                            .after(render::prepare_primitives)
+                            .before(bevy::render::render_phase::sort_phase_system::<Transparent2d>),
+                        render::prepare_bind_groups
+                            .in_set(RenderSet::PrepareBindGroups)
+                            .after(render::queue_primitives)
+                            .after(bevy::render::render_asset::prepare_assets::<Image>),
                     ),
                 );
         };

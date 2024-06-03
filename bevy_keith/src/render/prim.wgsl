@@ -220,7 +220,12 @@ fn sdf_rect(base: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
     let dist = length(max(delta, vec2<f32>(0))) + max(min(delta.x, 0.), min(delta.y, 0.)) - rect.radius;
     let ratio = dist + 0.5; // pixel center is at 0.5 from actual border
     let alpha = smoothstep(rect.color.a, 0., ratio);
-    return vec4<f32>(rect.color.rgb, alpha);
+    var color = rect.color.rgb;
+#ifdef TEXTURED
+    let uv = (canvas_pos - rect.center) * rect.uv_scale + rect.uv_origin;
+    color *= textureSample(quad_texture, quad_sampler, uv).rgb;
+#endif
+    return vec4<f32>(color, alpha);
 }
 
 fn sdf_line(base: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
