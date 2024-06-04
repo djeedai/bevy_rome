@@ -27,7 +27,6 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PrimitiveInfo {
     pub row_count: u32,
-    pub index_count: u32,
 }
 
 /// Implementation trait for primitives.
@@ -38,14 +37,7 @@ pub(crate) trait PrimImpl {
     /// Write the primitive and index buffers into the provided slices.
     ///
     /// The `scale_factor` is a scaling for text glyphs only.
-    fn write(
-        &self,
-        texts: &[ExtractedText],
-        prim: &mut [MaybeUninit<f32>],
-        base_index: u32,
-        idx: &mut [MaybeUninit<u32>],
-        scale_factor: f32,
-    );
+    fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], scale_factor: f32);
 }
 
 /// Kind of primitives understood by the GPU shader.
@@ -66,39 +58,6 @@ pub enum GpuPrimitiveKind {
     Line = 2,
     /// Quarter pie.
     QuarterPie = 3,
-}
-
-/// Encoded vertex index passed to the GPU shader.
-///
-/// # Note
-///
-/// The encoding must be kept in sync with the values inside the primitive
-/// shader.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct GpuIndex(u32);
-
-impl GpuIndex {
-    /// Create a new encoded index from a base primitive buffer index, a corner
-    /// specification, and a kind of primitive to draw.
-    ///
-    ///  31                                           0
-    /// [ ttt | kkk |  cc  | bbbbbbbb bbbbbbbb bbbbbbb ]
-    ///   Tex   Kind Corner          Base index
-    #[inline]
-    pub fn new(base_index: u32, corner: u8, kind: GpuPrimitiveKind, texture_index: u8) -> Self {
-        GpuIndex(
-            base_index
-                | ((corner as u32) << 24)
-                | ((kind as u32) << 26)
-                | ((texture_index as u32) << 29),
-        )
-    }
-
-    /// Get the raw encoded index value.
-    #[inline]
-    pub fn raw(&self) -> u32 {
-        self.0
-    }
 }
 
 /// Drawing primitives.
@@ -126,6 +85,15 @@ impl Primitive {
             Primitive::Rect(r) => r.aabb(),
             Primitive::Text(t) => t.aabb(),
             Primitive::QuarterPie(q) => q.aabb(),
+        }
+    }
+
+    pub fn is_textured(&self) -> bool {
+        match self {
+            Primitive::Line(l) => false,
+            Primitive::Rect(r) => r.is_textured(),
+            Primitive::Text(t) => true,
+            Primitive::QuarterPie(q) => false,
         }
     }
 }
@@ -164,19 +132,12 @@ impl PrimImpl for Primitive {
         }
     }
 
-    fn write(
-        &self,
-        texts: &[ExtractedText],
-        prim: &mut [MaybeUninit<f32>],
-        offset: u32,
-        idx: &mut [MaybeUninit<u32>],
-        scale_factor: f32,
-    ) {
+    fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], scale_factor: f32) {
         match &self {
-            Primitive::Line(l) => l.write(texts, prim, offset, idx, scale_factor),
-            Primitive::Rect(r) => r.write(texts, prim, offset, idx, scale_factor),
-            Primitive::Text(t) => t.write(texts, prim, offset, idx, scale_factor),
-            Primitive::QuarterPie(q) => q.write(texts, prim, offset, idx, scale_factor),
+            Primitive::Line(l) => l.write(texts, prim, scale_factor),
+            Primitive::Rect(r) => r.write(texts, prim, scale_factor),
+            Primitive::Text(t) => t.write(texts, prim, scale_factor),
+            Primitive::QuarterPie(q) => q.write(texts, prim, scale_factor),
         };
     }
 }
@@ -206,20 +167,10 @@ impl LinePrimitive {
 
 impl PrimImpl for LinePrimitive {
     fn info(&self, _texts: &[ExtractedText]) -> PrimitiveInfo {
-        PrimitiveInfo {
-            row_count: 6,
-            index_count: 6,
-        }
+        PrimitiveInfo { row_count: 6 }
     }
 
-    fn write(
-        &self,
-        _texts: &[ExtractedText],
-        prim: &mut [MaybeUninit<f32>],
-        base_index: u32,
-        idx: &mut [MaybeUninit<u32>],
-        _scale_factor: f32,
-    ) {
+    fn write(&self, _texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
         assert_eq!(6, prim.len());
         prim[0].write(self.start.x);
         prim[1].write(self.start.y);
@@ -227,11 +178,6 @@ impl PrimImpl for LinePrimitive {
         prim[3].write(self.end.y);
         prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
         prim[5].write(self.thickness);
-        assert_eq!(6, idx.len());
-        for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
-            let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Line, 0);
-            idx[i].write(index.raw());
-        }
     }
 }
 
@@ -260,14 +206,15 @@ impl RectPrimitive {
     /// Number of primitive buffer rows (4 bytes) per primitive when textured.
     const ROW_COUNT_TEX: u32 = 10;
 
-    /// Number of indices per primitive (2 triangles).
-    const INDEX_COUNT: u32 = 6;
-
     pub fn aabb(&self) -> Aabb2d {
         Aabb2d {
             min: self.rect.min,
             max: self.rect.max,
         }
+    }
+
+    pub fn is_textured(&self) -> bool {
+        self.image.is_some()
     }
 
     pub fn center(&self) -> Vec3 {
@@ -289,18 +236,10 @@ impl PrimImpl for RectPrimitive {
     fn info(&self, _texts: &[ExtractedText]) -> PrimitiveInfo {
         PrimitiveInfo {
             row_count: self.row_count(),
-            index_count: Self::INDEX_COUNT,
         }
     }
 
-    fn write(
-        &self,
-        _texts: &[ExtractedText],
-        prim: &mut [MaybeUninit<f32>],
-        base_index: u32,
-        idx: &mut [MaybeUninit<u32>],
-        _scale_factor: f32,
-    ) {
+    fn write(&self, _texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
         assert_eq!(
             self.row_count() as usize,
             prim.len(),
@@ -322,12 +261,8 @@ impl PrimImpl for RectPrimitive {
             prim[6].write(0.5);
             prim[7].write(0.5);
             prim[8].write(1. / 16.); // FIXME - hardcoded image size + mapping (scale 1:1, fit to rect, etc.)
-            prim[9].write(1. / 16.); // FIXME - hardcoded image size + mapping (scale 1:1, fit to rect, etc.)
-        }
-        assert_eq!(6, idx.len());
-        for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
-            let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Rect, 0);
-            idx[i].write(index.raw());
+            prim[9].write(1. / 16.); // FIXME - hardcoded image size + mapping
+                                     // (scale 1:1, fit to rect, etc.)
         }
     }
 }
@@ -343,9 +278,6 @@ impl TextPrimitive {
     /// Number of elements used by each single glyph in the primitive element
     /// buffer.
     pub const ROW_PER_GLYPH: u32 = 9;
-    /// Number of indices used by each single glyph in the primitive index
-    /// buffer.
-    pub const INDEX_PER_GLYPH: u32 = 6;
 
     pub fn aabb(&self) -> Aabb2d {
         // TODO : verify what is self.rect, and that it bounds the text glyphs indeed
@@ -363,31 +295,18 @@ impl PrimImpl for TextPrimitive {
             let glyph_count = texts[index].glyphs.len() as u32;
             PrimitiveInfo {
                 row_count: glyph_count * Self::ROW_PER_GLYPH,
-                index_count: glyph_count * Self::INDEX_PER_GLYPH,
             }
         } else {
-            PrimitiveInfo {
-                row_count: 0,
-                index_count: 0,
-            }
+            PrimitiveInfo { row_count: 0 }
         }
     }
 
-    fn write(
-        &self,
-        texts: &[ExtractedText],
-        prim: &mut [MaybeUninit<f32>],
-        mut base_index: u32,
-        idx: &mut [MaybeUninit<u32>],
-        scale_factor: f32,
-    ) {
+    fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], scale_factor: f32) {
         let index = self.id as usize;
         let glyphs = &texts[index].glyphs;
         let glyph_count = glyphs.len();
         assert_eq!(glyph_count * Self::ROW_PER_GLYPH as usize, prim.len());
-        assert_eq!(glyph_count * Self::INDEX_PER_GLYPH as usize, idx.len());
         let mut ip = 0;
-        let mut ii = 0;
         let inv_scale_factor = 1. / scale_factor;
         for i in 0..glyph_count {
             let x = glyphs[i].offset.x;
@@ -414,12 +333,6 @@ impl PrimImpl for TextPrimitive {
             prim[ip + 7].write(uv_w);
             prim[ip + 8].write(uv_h);
             ip += Self::ROW_PER_GLYPH as usize;
-            for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
-                let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::Glyph, 0);
-                idx[ii + i].write(index.raw());
-            }
-            ii += Self::INDEX_PER_GLYPH as usize;
-            base_index += Self::ROW_PER_GLYPH;
         }
     }
 }
@@ -479,18 +392,10 @@ impl PrimImpl for QuarterPiePrimitive {
     fn info(&self, _texts: &[ExtractedText]) -> PrimitiveInfo {
         PrimitiveInfo {
             row_count: self.row_count(),
-            index_count: Self::INDEX_COUNT,
         }
     }
 
-    fn write(
-        &self,
-        _texts: &[ExtractedText],
-        prim: &mut [MaybeUninit<f32>],
-        base_index: u32,
-        idx: &mut [MaybeUninit<u32>],
-        _scale_factor: f32,
-    ) {
+    fn write(&self, _texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
         assert_eq!(self.row_count() as usize, prim.len());
         let radii_mask = BVec2::new(self.flip_x, self.flip_y);
         let signed_radii = Vec2::select(radii_mask, -self.radii, self.radii);
@@ -499,11 +404,6 @@ impl PrimImpl for QuarterPiePrimitive {
         prim[2].write(signed_radii.x);
         prim[3].write(signed_radii.y);
         prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
-        assert_eq!(6, idx.len());
-        for (i, corner) in [0, 2, 3, 0, 3, 1].iter().enumerate() {
-            let index = GpuIndex::new(base_index, *corner as u8, GpuPrimitiveKind::QuarterPie, 0);
-            idx[i].write(index.raw());
-        }
     }
 }
 
@@ -666,8 +566,9 @@ pub struct OffsetAndCount {
 pub struct PrimitiveIndexAndKind(pub u32);
 
 impl PrimitiveIndexAndKind {
-    pub fn new(index: u32, kind: GpuPrimitiveKind) -> Self {
-        let value = (index & 0x0FFF_FFFF) | (kind as u32) << 28;
+    pub fn new(index: u32, kind: GpuPrimitiveKind, textured: bool) -> Self {
+        let textured = (textured as u32) << 31;
+        let value = (index & 0x0FFF_FFFF) | (kind as u32) << 28 | textured;
         Self(value)
     }
 }

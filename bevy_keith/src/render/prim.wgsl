@@ -46,9 +46,7 @@ struct OffsetAndCount {
 }
 
 struct Tiles {
-    /// Allocated number of primitives.
-    //count: atomic<u32>,
-    /// Indices of primitives.
+    /// Packed index and kind of primitives.
     primitives: array<u32>,
 }
 
@@ -57,19 +55,15 @@ var<uniform> view: View;
 
 @group(1) @binding(0)
 var<storage, read> primitives: Primitives;
-
 @group(1) @binding(1)
 var<storage, read> tiles: Tiles;
-
 @group(1) @binding(2)
 var<storage, read> offsets_and_counts: array<OffsetAndCount>;
 
-#ifdef TEXTURED
 @group(2) @binding(0)
 var quad_texture: texture_2d<f32>;
 @group(2) @binding(1)
 var quad_sampler: sampler;
-#endif
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -95,12 +89,10 @@ struct Rect {
     radius: f32,
     /// Color.
     color: vec4<f32>,
-#ifdef TEXTURED
     /// Origin of UV coordinates.
     uv_origin: vec2<f32>,
     /// Scale of UV coordinates.
     uv_scale: vec2<f32>,
-#endif
 }
 
 struct QPie {
@@ -138,37 +130,37 @@ fn get_tile_dim() -> vec2<u32> {
 struct IndexAndKind {
     index: u32,
     kind: u32,
+    textured: bool,
 }
 
 fn unpack_index_and_kind(value: u32) -> IndexAndKind {
     let index = (value & 0x0FFFFFFFu);
-    let kind = (value & 0xF0000000u) >> 28u;
-    return IndexAndKind(index, kind);
+    let kind = (value & 0x70000000u) >> 28u;
+    let textured = (value & 0x80000000u) != 0u;
+    return IndexAndKind(index, kind, textured);
 }
 
-fn load_rect(offset: u32) -> Rect {
+fn load_rect(offset: u32, textured: bool) -> Rect {
     let x = primitives.elems[offset];
     let y = primitives.elems[offset + 1u];
     let hw = primitives.elems[offset + 2u];
     let hh = primitives.elems[offset + 3u];
     let r = primitives.elems[offset + 4u];
     let c = primitives.elems[offset + 5u];
-#ifdef TEXTURED
-    let uv_x = primitives.elems[offset + 6u];
-    let uv_y = primitives.elems[offset + 7u];
-    let uv_sx = primitives.elems[offset + 8u];
-    let uv_sy = primitives.elems[offset + 9u];
-#endif
     var rect: Rect;
     rect.center = vec2<f32>(x, y);
     rect.half_size = vec2<f32>(hw, hh);
     rect.radius = r;
     let uc: u32 = bitcast<u32>(c);
     rect.color = unpack4x8unorm(uc);
-#ifdef TEXTURED
-    rect.uv_origin = vec2<f32>(uv_x, uv_y);
-    rect.uv_scale = vec2<f32>(uv_sx, uv_sy);
-#endif
+    if (textured) {
+        let uv_x = primitives.elems[offset + 6u];
+        let uv_y = primitives.elems[offset + 7u];
+        let uv_sx = primitives.elems[offset + 8u];
+        let uv_sy = primitives.elems[offset + 9u];
+        rect.uv_origin = vec2<f32>(uv_x, uv_y);
+        rect.uv_scale = vec2<f32>(uv_sx, uv_sy);
+    }
     return rect;
 }
 
@@ -214,17 +206,17 @@ fn get_vertex_pos(vertex_index: u32) -> vec2<f32> {
     }
 }
 
-fn sdf_rect(base: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
-    let rect = load_rect(base);
+fn sdf_rect(base: u32, canvas_pos: vec2<f32>, textured: bool) -> vec4<f32> {
+    let rect = load_rect(base, textured);
     let delta = abs(canvas_pos - rect.center) - rect.half_size + rect.radius;
     let dist = length(max(delta, vec2<f32>(0))) + max(min(delta.x, 0.), min(delta.y, 0.)) - rect.radius;
     let ratio = dist + 0.5; // pixel center is at 0.5 from actual border
     let alpha = smoothstep(rect.color.a, 0., ratio);
     var color = rect.color.rgb;
-#ifdef TEXTURED
-    let uv = (canvas_pos - rect.center) * rect.uv_scale + rect.uv_origin;
-    color *= textureSample(quad_texture, quad_sampler, uv).rgb;
-#endif
+    if (textured) {
+        let uv = (canvas_pos - rect.center) * rect.uv_scale + rect.uv_origin;
+        color *= textureSample(quad_texture, quad_sampler, uv).rgb;
+    }
     return vec4<f32>(color, alpha);
 }
 
@@ -267,11 +259,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let index_and_kind = unpack_index_and_kind(tiles.primitives[i]);
         switch index_and_kind.kind {
             case PRIM_RECT {
-                let new_color = sdf_rect(index_and_kind.index, canvas_pos);
+                let new_color = sdf_rect(index_and_kind.index, canvas_pos, index_and_kind.textured);
                 color = mix(color, new_color, new_color.a);
             }
             case PRIM_GLYPH {
-                let new_color = sdf_rect(index_and_kind.index, canvas_pos);
+                let new_color = sdf_rect(index_and_kind.index, canvas_pos, index_and_kind.textured);
                 color = mix(color, new_color, new_color.a);
             }
             case PRIM_LINE {
