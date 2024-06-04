@@ -242,7 +242,9 @@ impl PrimitiveBatch {
             && self.canvas_entity == other.canvas_entity
         {
             // Overwrite in case self is invalid
-            self.image_handle_id = other.image_handle_id;
+            if self.image_handle_id == AssetId::invalid() {
+                self.image_handle_id = other.image_handle_id;
+            }
             true
         } else {
             false
@@ -1223,6 +1225,10 @@ pub fn prepare_bind_groups(
                 },
             ],
         ));
+        debug!(
+            "Created bind group for fallback primitive texture: {:?}",
+            image_bind_groups.fallback.as_ref().unwrap()
+        );
     }
 
     primitive_meta.view_bind_group = Some(render_device.create_bind_group(
