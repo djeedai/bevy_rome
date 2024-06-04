@@ -1,4 +1,4 @@
-use std::{fmt::Write, ops::Range};
+use std::fmt::Write as _;
 
 use bevy::{
     asset::{Asset, AssetEvent, AssetId},
@@ -31,7 +31,7 @@ use bevy::{
             TextureSampleType, TextureViewDimension, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
-        texture::{BevyDefault, Image},
+        texture::{BevyDefault, FallbackImage, Image},
         view::{Msaa, ViewUniform, ViewUniformOffset, ViewUniforms},
         Extract,
     },
@@ -41,8 +41,7 @@ use bevy::{
 
 use crate::{
     canvas::{
-        Canvas, OffsetAndCount, PrimImpl, Primitive, PrimitiveIndexAndKind, PrimitiveInfo,
-        TextPrimitive, Tiles,
+        Canvas, OffsetAndCount, PrimImpl, Primitive, PrimitiveIndexAndKind, PrimitiveInfo, Tiles,
     },
     text::CanvasTextId,
     PRIMITIVE_SHADER_HANDLE,
@@ -135,6 +134,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveTextureBindG
         let Some(primitive_batch) = primitive_batch else {
             return RenderCommandResult::Failure;
         };
+        let image_bind_groups = image_bind_groups.into_inner();
         if primitive_batch.image_handle_id != AssetId::<Image>::invalid() {
             trace!(
                 "SetPrimitiveTextureBindGroup: I={} image={:?} (valid={})",
@@ -146,7 +146,6 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveTextureBindG
                     "false"
                 }
             );
-            let image_bind_groups = image_bind_groups.into_inner();
             trace!("image_bind_groups:");
             for (handle, bind_group) in &image_bind_groups.values {
                 trace!("+ ibg: {:?} = {:?}", handle, bind_group);
@@ -159,6 +158,12 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveTextureBindG
                 return RenderCommandResult::Failure;
             };
             pass.set_bind_group(I, ibg, &[]);
+        } else if let Some(ibg) = image_bind_groups.fallback.as_ref() {
+            // We need a texture anyway, bind anything to make the shader happy
+            pass.set_bind_group(I, ibg, &[]);
+        } else {
+            // We can't use this shader without a valid bind group
+            return RenderCommandResult::Failure;
         }
         RenderCommandResult::Success
     }
@@ -211,8 +216,6 @@ pub struct PrimitiveBatch {
     image_handle_id: AssetId<Image>,
     /// Entity holding the [`Canvas`] component this batch is built from.
     canvas_entity: Entity,
-    /// Index range.
-    range: Range<u32>,
 }
 
 impl PrimitiveBatch {
@@ -224,23 +227,34 @@ impl PrimitiveBatch {
         PrimitiveBatch {
             image_handle_id: AssetId::<Image>::invalid(),
             canvas_entity: Entity::PLACEHOLDER,
-            range: 0..0,
         }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.canvas_entity != Entity::PLACEHOLDER
     }
 
     /// Try to merge a batch into the current batch.
     ///
     /// Return `true` if the batch was merged, or `false` otherwise.
     pub fn try_merge(&mut self, other: &PrimitiveBatch) -> bool {
-        if self.image_handle_id == other.image_handle_id
+        if self.is_handle_compatible(other.image_handle_id)
             && self.canvas_entity == other.canvas_entity
-            && self.range.end == other.range.start
         {
-            self.range = self.range.start..other.range.end;
+            // Overwrite in case self is invalid
+            self.image_handle_id = other.image_handle_id;
             true
         } else {
             false
         }
+    }
+
+    fn is_handle_compatible(&self, handle: AssetId<Image>) -> bool {
+        // Any invalid handle means "no texture", which can be batched with any other
+        // texture. Only different (valid) textures cannot be batched together.
+        return handle == AssetId::invalid()
+            || self.image_handle_id == AssetId::invalid()
+            || self.image_handle_id == handle;
     }
 }
 
@@ -273,6 +287,7 @@ impl Default for PrimitiveMeta {
 #[derive(Default, Resource)]
 pub struct ImageBindGroups {
     values: HashMap<AssetId<Image>, BindGroup>,
+    fallback: Option<BindGroup>,
 }
 
 /// Rendering pipeline for [`Canvas`] primitives.
@@ -378,9 +393,8 @@ bitflags::bitflags! {
     // NOTE: Apparently quadro drivers support up to 64x MSAA.
     // MSAA uses the highest 6 bits for the MSAA sample count - 1 to support up to 64x MSAA.
     pub struct PrimitivePipelineKey: u32 {
-        const NONE                        = 0;
-        const TEXTURED                    = (1 << 0);
-        const MSAA_RESERVED_BITS          = PrimitivePipelineKey::MSAA_MASK_BITS << PrimitivePipelineKey::MSAA_SHIFT_BITS;
+        const NONE               = 0;
+        const MSAA_RESERVED_BITS = PrimitivePipelineKey::MSAA_MASK_BITS << PrimitivePipelineKey::MSAA_SHIFT_BITS;
     }
 }
 
@@ -403,27 +417,16 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
     type Key = PrimitivePipelineKey;
 
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
-        let mut layout = vec![self.view_layout.clone(), self.prim_layout.clone()];
-        let mut shader_defs = Vec::new();
-
-        let pipeline_label = if key.contains(PrimitivePipelineKey::TEXTURED) {
-            shader_defs.push("TEXTURED".into());
-            layout.push(self.material_layout.clone());
-            "keith:primitive_pipeline_textured".into()
-        } else {
-            "keith:primitive_pipeline_untextured".into()
-        };
-
         RenderPipelineDescriptor {
             vertex: VertexState {
                 shader: PRIMITIVE_SHADER_HANDLE,
                 entry_point: "vertex".into(),
-                shader_defs: shader_defs.clone(),
+                shader_defs: vec![],
                 buffers: vec![], // vertex-less rendering
             },
             fragment: Some(FragmentState {
                 shader: PRIMITIVE_SHADER_HANDLE,
-                shader_defs,
+                shader_defs: vec![],
                 entry_point: "fragment".into(),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
@@ -431,7 +434,11 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
                     write_mask: ColorWrites::ALL,
                 })],
             }),
-            layout,
+            layout: vec![
+                self.view_layout.clone(),
+                self.prim_layout.clone(),
+                self.material_layout.clone(),
+            ],
             primitive: PrimitiveState {
                 front_face: FrontFace::Ccw,
                 cull_mode: None,
@@ -447,7 +454,7 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            label: Some(pipeline_label),
+            label: Some("keith:primitive_pipeline".into()),
             push_constant_ranges: vec![],
         }
     }
@@ -482,14 +489,12 @@ impl ExtractedCanvas {
     pub fn write_buffers(
         &mut self,
         primitives: &[f32],
-        indices: &[u32],
         render_device: &RenderDevice,
         render_queue: &RenderQueue,
     ) {
         trace!(
-            "Writing {} primitive elements and {} indices to GPU buffers",
+            "Writing {} primitive elements to GPU buffers",
             primitives.len(),
-            indices.len()
         );
 
         // Primitive buffer
@@ -855,14 +860,11 @@ impl<'a> SubPrimIter<'a> {
 }
 
 impl<'a> Iterator for SubPrimIter<'a> {
-    type Item = (AssetId<Image>, u32);
+    type Item = AssetId<Image>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(prim) = &self.prim {
-            let PrimitiveInfo {
-                row_count: _,
-                index_count,
-            } = prim.info(self.texts);
+            let PrimitiveInfo { row_count: _ } = prim.info(self.texts);
             match prim {
                 Primitive::Text(text) => {
                     if text.id as usize >= self.texts.len() {
@@ -872,7 +874,7 @@ impl<'a> Iterator for SubPrimIter<'a> {
                     if self.index < text.glyphs.len() {
                         let image_handle_id = text.glyphs[self.index].handle_id;
                         self.index += 1;
-                        Some((image_handle_id, TextPrimitive::INDEX_PER_GLYPH))
+                        Some(image_handle_id)
                     } else {
                         self.prim = None;
                         None
@@ -885,12 +887,12 @@ impl<'a> Iterator for SubPrimIter<'a> {
                         AssetId::<Image>::invalid()
                     };
                     self.prim = None;
-                    Some((handle_id, index_count))
+                    Some(handle_id)
                 }
                 _ => {
                     self.prim = None;
                     // Currently all other primitives are non-textured
-                    Some((AssetId::<Image>::invalid(), index_count))
+                    Some(AssetId::<Image>::invalid())
                 }
             }
         } else {
@@ -969,7 +971,6 @@ pub(crate) fn prepare_primitives(
         );
 
         let mut primitives = vec![];
-        let mut indices = vec![];
 
         prepared_primitives.clear();
         prepared_primitives.reserve(extracted_canvas.primitives.len());
@@ -984,7 +985,8 @@ pub(crate) fn prepare_primitives(
         let mut current_batch = PrimitiveBatch::invalid();
         for prim in &extracted_canvas.primitives {
             let base_index = primitives.len() as u32;
-            let prim_index = PrimitiveIndexAndKind::new(base_index, prim.gpu_kind());
+            let is_textured = prim.is_textured();
+            let prim_index = PrimitiveIndexAndKind::new(base_index, prim.gpu_kind(), is_textured);
 
             // Calculate once and save the AABB of the primitive, for tile assignment
             // purpose. Since there are many more tiles than primitives, it's worth doing
@@ -997,47 +999,31 @@ pub(crate) fn prepare_primitives(
             trace!("+ Primitive @ base_index={} aabb={:?}", base_index, aabb);
 
             // Serialize the primitive
-            let PrimitiveInfo {
-                row_count,
-                index_count,
-            } = prim.info(&extracted_canvas.texts[..]);
-            trace!("  row_count={} index_count={}", row_count, index_count);
-            if row_count > 0 && index_count > 0 {
+            let PrimitiveInfo { row_count } = prim.info(&extracted_canvas.texts[..]);
+            trace!("  row_count={}", row_count);
+            if row_count > 0 {
                 let row_count = row_count as usize;
-                let index_count = index_count as usize;
 
                 // Reserve some (uninitialized) storage for new data
                 primitives.reserve(row_count);
-                indices.reserve(index_count);
                 let prim_slice = primitives.spare_capacity_mut();
-                let idx_slice = indices.spare_capacity_mut();
 
                 // Write primitives and indices directly into storage
                 prim.write(
                     &extracted_canvas.texts[..],
                     &mut prim_slice[..row_count],
-                    base_index,
-                    &mut idx_slice[..index_count],
                     extracted_canvas.scale_factor,
                 );
 
                 // Apply new storage sizes once data is initialized
                 let new_row_count = primitives.len() + row_count;
                 unsafe { primitives.set_len(new_row_count) };
-                let new_index_count = indices.len() + index_count;
-                unsafe { indices.set_len(new_index_count) };
 
                 trace!("New primitive elements: (+{})", row_count);
                 trace_list!(
                     "+ f32[] =",
                     primitives[new_row_count - row_count..new_row_count],
                     " {}"
-                );
-                trace!("New indices: (+{})", index_count);
-                trace_list!(
-                    "+ u32[] =",
-                    indices[new_index_count - index_count..new_index_count],
-                    " {:x}"
                 );
             }
 
@@ -1046,24 +1032,21 @@ pub(crate) fn prepare_primitives(
             // can split the draw into a new batch.
             trace!("Batch sub-primitives...");
             let batch_iter = SubPrimIter::new(*prim, &extracted_canvas.texts);
-            for (image_handle_id, num_indices) in batch_iter {
+            for image_handle_id in batch_iter {
                 let new_batch = PrimitiveBatch {
                     image_handle_id,
                     canvas_entity: *entity,
-                    range: current_batch.range.end..current_batch.range.end + num_indices,
                 };
                 trace!(
-                    "New Batch: canvas_entity={:?} index={:?} handle={:?}",
+                    "New Batch: canvas_entity={:?} image={:?}",
                     new_batch.canvas_entity,
-                    new_batch.range,
                     new_batch.image_handle_id
                 );
 
                 if current_batch.try_merge(&new_batch) {
-                    assert_eq!(current_batch.range.end, new_batch.range.end);
                     trace!(
-                        "Merged new batch with current batch: index={:?}",
-                        current_batch.range
+                        "Merged new batch with current batch: image={:?}",
+                        current_batch.image_handle_id
                     );
                     continue;
                 }
@@ -1072,7 +1055,7 @@ pub(crate) fn prepare_primitives(
 
                 // Skip if batch is empty, which may happen on first one (current_batch
                 // initialized to an invalid empty batch)
-                if !current_batch.range.is_empty() {
+                if current_batch.is_valid() {
                     commands.spawn(current_batch);
                 }
 
@@ -1081,12 +1064,12 @@ pub(crate) fn prepare_primitives(
         }
 
         // Output the last batch
-        if !current_batch.range.is_empty() {
+        if current_batch.is_valid() {
             trace!("Output last batch...");
             commands.spawn(current_batch);
         }
 
-        if primitives.is_empty() || indices.is_empty() {
+        if primitives.is_empty() {
             trace!("No primitive to render, finished preparing.");
             return;
         }
@@ -1123,17 +1106,11 @@ pub(crate) fn prepare_primitives(
 
         // Write to GPU buffers
         trace!(
-            "Writing {} elems and {} indices for Canvas of entity {:?}",
+            "Writing {} elems for Canvas of entity {:?}",
             primitives.len(),
-            indices.len(),
             entity
         );
-        extracted_canvas.write_buffers(
-            &primitives[..],
-            &indices[..],
-            &render_device,
-            &render_queue,
-        );
+        extracted_canvas.write_buffers(&primitives[..], &render_device, &render_queue);
     }
 }
 
@@ -1154,34 +1131,25 @@ pub fn queue_primitives(
     trace!("Specializing pipeline(s)...");
     let draw_primitives_function = draw_functions.read().get_id::<DrawPrimitive>().unwrap();
     let key = PrimitivePipelineKey::from_msaa_samples(msaa.samples());
-    let untextured_pipeline = pipelines.specialize(&mut pipeline_cache, &primitive_pipeline, key);
-    let textured_pipeline = pipelines.specialize(
-        &mut pipeline_cache,
-        &primitive_pipeline,
-        key | PrimitivePipelineKey::TEXTURED,
-    );
-    trace!(
-        "untextured_pipeline={:?} textured_pipeline={:?}",
-        untextured_pipeline,
-        textured_pipeline
-    );
+    let primitive_pipeline = pipelines.specialize(&mut pipeline_cache, &primitive_pipeline, key);
+    trace!("primitive_pipeline={:?}", primitive_pipeline,);
 
     trace!("Looping on batches...");
     for (batch_entity, batch) in batches.iter() {
-        trace!("batch ent={:?} range={:?}", batch_entity, batch.range);
-        if batch.range.is_empty() {
+        trace!(
+            "batch ent={:?} image={:?}",
+            batch_entity,
+            batch.image_handle_id
+        );
+        if !batch.is_valid() {
+            // shouldn't happen
             continue;
         }
 
         let canvas_entity = batch.canvas_entity;
 
         let is_textured = batch.image_handle_id != AssetId::<Image>::invalid();
-        let pipeline = if is_textured {
-            textured_pipeline
-        } else {
-            untextured_pipeline
-        };
-        trace!("  is_textured={} pipeline_id={:?}", is_textured, pipeline);
+        trace!("  is_textured={}", is_textured);
 
         let extracted_canvas =
             if let Some(extracted_canvas) = extracted_canvases.canvases.get(&canvas_entity) {
@@ -1202,15 +1170,15 @@ pub fn queue_primitives(
         // FIXME - Use VisibleEntities to optimize per-view
         for mut transparent_phase in views.iter_mut() {
             trace!(
-                "Add Transparent2d entity={:?} range={:?} pipeline={:?} (sort={:?})",
+                "Add Transparent2d entity={:?} image={:?} pipeline={:?} (sort={:?})",
                 batch_entity,
-                batch.range,
-                pipeline,
+                batch.image_handle_id,
+                primitive_pipeline,
                 sort_key
             );
             transparent_phase.add(Transparent2d {
                 draw_function: draw_primitives_function,
-                pipeline,
+                pipeline: primitive_pipeline,
                 entity: batch_entity,
                 sort_key,
                 // This is batching multiple items into a single draw call, which is not a feature
@@ -1229,6 +1197,7 @@ pub fn prepare_bind_groups(
     batches: Query<(Entity, &PrimitiveBatch)>,
     extracted_canvases: Res<ExtractedCanvases>,
     gpu_images: Res<RenderAssets<Image>>,
+    fallback_images: Res<FallbackImage>,
     mut primitive_meta: ResMut<PrimitiveMeta>,
     mut image_bind_groups: ResMut<ImageBindGroups>,
 ) {
@@ -1238,6 +1207,23 @@ pub fn prepare_bind_groups(
         trace!("View binding not available; aborted.");
         return;
     };
+
+    if image_bind_groups.fallback.is_none() {
+        image_bind_groups.fallback = Some(render_device.create_bind_group(
+            "keith:fallback_primitive_material_bind_group",
+            &primitive_pipeline.material_layout,
+            &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(&fallback_images.d2.texture_view),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::Sampler(&fallback_images.d2.sampler),
+                },
+            ],
+        ));
+    }
 
     primitive_meta.view_bind_group = Some(render_device.create_bind_group(
         "keith:primitive_view_bind_group",
@@ -1250,8 +1236,13 @@ pub fn prepare_bind_groups(
 
     trace!("Looping on batches...");
     for (batch_entity, batch) in batches.iter() {
-        trace!("batch ent={:?} range={:?}", batch_entity, batch.range);
-        if batch.range.is_empty() {
+        trace!(
+            "batch ent={:?} image={:?}",
+            batch_entity,
+            batch.image_handle_id
+        );
+        if !batch.is_valid() {
+            // shouldn't happen
             continue;
         }
 
@@ -1313,6 +1304,7 @@ pub fn prepare_bind_groups(
             batch_entity,
         );
 
+        // Set bind group for texture, if any
         if batch.image_handle_id != AssetId::<Image>::invalid() {
             if let Some(gpu_image) = gpu_images.get(batch.image_handle_id) {
                 image_bind_groups
