@@ -844,7 +844,7 @@ pub(crate) fn extract_primitives(
 pub(crate) struct SubPrimIter<'a> {
     /// The current primitive being iterated over, or `None` if the iterator
     /// reached the end of the iteration sequence.
-    prim: Option<Primitive>,
+    prim: Option<&'a Primitive>,
     /// The index of the current sub-primitive inside its parent primitive.
     index: usize,
     /// Text information for iterating over glyphs.
@@ -852,7 +852,7 @@ pub(crate) struct SubPrimIter<'a> {
 }
 
 impl<'a> SubPrimIter<'a> {
-    pub fn new(prim: Primitive, texts: &'a [ExtractedText]) -> Self {
+    pub fn new(prim: &'a Primitive, texts: &'a [ExtractedText]) -> Self {
         Self {
             prim: Some(prim),
             index: 0,
@@ -865,7 +865,7 @@ impl<'a> Iterator for SubPrimIter<'a> {
     type Item = AssetId<Image>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(prim) = &self.prim {
+        if let Some(prim) = self.prim {
             let PrimitiveInfo { row_count: _ } = prim.info(self.texts);
             match prim {
                 Primitive::Text(text) => {
@@ -1033,7 +1033,7 @@ pub(crate) fn prepare_primitives(
             // per glyph, each of which _can_ have a separate atlas texture so potentially
             // can split the draw into a new batch.
             trace!("Batch sub-primitives...");
-            let batch_iter = SubPrimIter::new(*prim, &extracted_canvas.texts);
+            let batch_iter = SubPrimIter::new(prim, &extracted_canvas.texts);
             for image_handle_id in batch_iter {
                 let new_batch = PrimitiveBatch {
                     image_handle_id,
