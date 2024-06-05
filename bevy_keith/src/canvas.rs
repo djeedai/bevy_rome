@@ -434,8 +434,6 @@ pub struct Canvas {
     /// Collection of allocated texts.
     #[reflect(ignore)]
     pub(crate) text_layouts: Vec<TextLayout>,
-    /// Marker for text change updates.
-    text_changed: bool,
 }
 
 impl Canvas {
@@ -483,15 +481,9 @@ impl Canvas {
     /// and using it to draw primitives.
     ///
     /// [`render_context()`]: crate::canvas::Canvas::render_context
+    #[inline]
     pub fn draw(&mut self, prim: impl Into<Primitive>) {
-        let prim = prim.into();
-        if let Primitive::Text(text) = &prim {
-            trace!("draw text #{} at rect={:?}", text.id, text.rect);
-            self.text_changed = true;
-            // let layout = &mut self.text_layouts[text.id.index()];
-            // layout.used = true;
-        }
-        self.primitives.push(prim);
+        self.primitives.push(prim.into());
     }
 
     /// Acquire a new render context to draw on this canvas.
@@ -529,8 +521,8 @@ impl Canvas {
         &mut self.text_layouts[..]
     }
 
-    pub(crate) fn text_changed(&self) -> bool {
-        self.text_changed
+    pub(crate) fn has_text(&self) -> bool {
+        !self.text_layouts.is_empty()
     }
 }
 

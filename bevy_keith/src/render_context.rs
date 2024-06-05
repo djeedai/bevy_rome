@@ -94,7 +94,7 @@ pub struct TextLayout {
     /// Calculated text size based on glyphs alone, updated by
     /// [`process_glyphs()`].
     pub(crate) calculated_size: Vec2,
-    /// Layout info calculated by the [`KeithTextPipeline`].
+    /// Layout info calculated by the [`KeithTextPipeline`] during [`process_glyphs()`].
     pub(crate) layout_info: Option<TextLayoutInfo>,
 }
 

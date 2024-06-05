@@ -61,10 +61,13 @@ impl Plugin for KeithPlugin {
         app.register_type::<Canvas>()
             .init_resource::<KeithTextPipeline>()
             .add_systems(PreUpdate, canvas::update_canvas_from_ortho_camera)
-            .add_systems(PostUpdate, text::process_glyphs) //.after(ModifiesWindows),
+            .add_systems(PostUpdate, text::process_glyphs)
             .configure_sets(
                 PostUpdate,
-                (KeithSystem::AddTiles, KeithSystem::AssignPrimitivesToTiles).chain(),
+                (KeithSystem::AddTiles, KeithSystem::AssignPrimitivesToTiles)
+                    .chain()
+                    // We need the result of the positioned glyphs to be able to assign them to tiles
+                    .after(text::process_glyphs),
             )
             .add_systems(
                 PostUpdate,
