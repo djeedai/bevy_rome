@@ -69,49 +69,10 @@ struct VertexOutput {
     @builtin(position) position: vec4<f32>,
 };
 
-struct Primitive {
-    /// Offset into the primitive buffer.
-    offset: u32,
-    /// Kind of primitive.
-    kind: u32,
-    /// Rectangle corner, in [0:1].
-    corner: vec2<f32>,
-    /// Texture index.
-    tex_index: u32,
-}
-
-struct Rect {
-    /// Center point.
-    center: vec2<f32>,
-    /// Half extents.
-    half_size: vec2<f32>,
-    /// Corners radius.
-    radius: f32,
-    /// Color.
-    color: vec4<f32>,
-    /// Origin of UV coordinates.
-    uv_origin: vec2<f32>,
-    /// Scale of UV coordinates.
-    uv_scale: vec2<f32>,
-}
-
 struct QPie {
     origin: vec2<f32>,
     radii: vec2<f32>,
     color: vec4<f32>,
-}
-
-struct Line {
-    /// Line origin.
-    origin: vec2<f32>,
-    /// Line direction, of length the segment length.
-    dir: vec2<f32>,
-    /// Normal vector (normalized).
-    normal: vec2<f32>,
-    /// Line color.
-    color: vec4<f32>,
-    /// Line thickness, in the direction of the normal.
-    thickness: f32,
 }
 
 const TILE_SIZE = vec2<f32>(8., 8.);
@@ -140,47 +101,74 @@ fn unpack_index_and_kind(value: u32) -> IndexAndKind {
     return IndexAndKind(index, kind, textured);
 }
 
-fn load_rect(offset: u32, textured: bool) -> Rect {
+fn get_vertex_pos(vertex_index: u32) -> vec2<f32> {
+    switch vertex_index {
+        case 0u { return vec2<f32>(-1., -1.); }
+        case 1u { return vec2<f32>(3., -1.); }
+        case 2u { return vec2<f32>(-1., 3.); }
+        default { return vec2<f32>(1e38, 1e38); }
+    }
+}
+
+fn sdf_rect(offset: u32, canvas_pos: vec2<f32>, textured: bool) -> vec4<f32> {
     let x = primitives.elems[offset];
     let y = primitives.elems[offset + 1u];
+    let center = vec2<f32>(x, y);
+    
     let hw = primitives.elems[offset + 2u];
     let hh = primitives.elems[offset + 3u];
-    let r = primitives.elems[offset + 4u];
+    let half_size = vec2<f32>(hw, hh);
+
+    let radius = primitives.elems[offset + 4u];
+    
     let c = primitives.elems[offset + 5u];
-    var rect: Rect;
-    rect.center = vec2<f32>(x, y);
-    rect.half_size = vec2<f32>(hw, hh);
-    rect.radius = r;
     let uc: u32 = bitcast<u32>(c);
-    rect.color = unpack4x8unorm(uc);
+    let rgba = unpack4x8unorm(uc);
+    
+    let delta = abs(canvas_pos - center) - half_size + radius;
+    let dist = length(max(delta, vec2<f32>(0))) + max(min(delta.x, 0.), min(delta.y, 0.)) - radius;
+    let ratio = dist + 0.5; // pixel center is at 0.5 from actual border
+    let alpha = smoothstep(rgba.a, 0., ratio);
+
+    var color = rgba.rgb;
     if (textured) {
         let uv_x = primitives.elems[offset + 6u];
         let uv_y = primitives.elems[offset + 7u];
         let uv_sx = primitives.elems[offset + 8u];
         let uv_sy = primitives.elems[offset + 9u];
-        rect.uv_origin = vec2<f32>(uv_x, uv_y);
-        rect.uv_scale = vec2<f32>(uv_sx, uv_sy);
+        let uv_origin = vec2<f32>(uv_x, uv_y);
+        let uv_scale = vec2<f32>(uv_sx, uv_sy);
+        let uv = (canvas_pos - center) * uv_scale + uv_origin;
+        color *= textureSample(quad_texture, quad_sampler, uv).rgb;
     }
-    return rect;
+
+    return vec4<f32>(color, alpha);
 }
 
-fn load_line(offset: u32) -> Line {
+fn sdf_line(offset: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
     let p0x = primitives.elems[offset];
     let p0y = primitives.elems[offset + 1u];
     let p1x = primitives.elems[offset + 2u];
     let p1y = primitives.elems[offset + 3u];
-    let c = primitives.elems[offset + 4u];
-    let t = primitives.elems[offset + 5u];
-    var lin: Line;
     let p0 = vec2<f32>(p0x, p0y);
     let p1 = vec2<f32>(p1x, p1y);
-    lin.origin = p0;
-    lin.dir = p1 - p0;
-    lin.normal = normalize(vec2<f32>(-lin.dir.y, lin.dir.x));
+    let dir = p1 - p0;
+
+    let c = primitives.elems[offset + 4u];
     let uc: u32 = bitcast<u32>(c);
-    lin.color = unpack4x8unorm(uc);
-    lin.thickness = t;
-    return lin;
+    let color = unpack4x8unorm(uc);
+
+    let thickness = primitives.elems[offset + 5u];
+
+    let d = normalize(dir);
+    let center = p0 + dir / 2.;
+    let rot_delta = mat2x2<f32>(d.x, -d.y, d.y, d.x) * (canvas_pos - center);
+    let delta = abs(rot_delta) - vec2<f32>(length(dir), thickness) * 0.5;
+    let dist = length(max(delta, vec2<f32>(0))) + max(min(delta.x, 0.), min(delta.y, 0.));
+    let ratio = dist + 0.5; // pixel center is at 0.5 from actual border
+    let alpha = smoothstep(color.a, 0., ratio);
+
+    return vec4<f32>(color.rgb, alpha);
 }
 
 fn load_qpie(offset: u32) -> QPie {
@@ -195,42 +183,6 @@ fn load_qpie(offset: u32) -> QPie {
     let uc: u32 = bitcast<u32>(c);
     qpie.color = unpack4x8unorm(uc);
     return qpie;
-}
-
-fn get_vertex_pos(vertex_index: u32) -> vec2<f32> {
-    switch vertex_index {
-        case 0u { return vec2<f32>(-1., -1.); }
-        case 1u { return vec2<f32>(3., -1.); }
-        case 2u { return vec2<f32>(-1., 3.); }
-        default { return vec2<f32>(1e38, 1e38); }
-    }
-}
-
-fn sdf_rect(base: u32, canvas_pos: vec2<f32>, textured: bool) -> vec4<f32> {
-    let rect = load_rect(base, textured);
-    let delta = abs(canvas_pos - rect.center) - rect.half_size + rect.radius;
-    let dist = length(max(delta, vec2<f32>(0))) + max(min(delta.x, 0.), min(delta.y, 0.)) - rect.radius;
-    let ratio = dist + 0.5; // pixel center is at 0.5 from actual border
-    let alpha = smoothstep(rect.color.a, 0., ratio);
-    var color = rect.color.rgb;
-    if (textured) {
-        let uv = (canvas_pos - rect.center) * rect.uv_scale + rect.uv_origin;
-        color *= textureSample(quad_texture, quad_sampler, uv).rgb;
-    }
-    return vec4<f32>(color, alpha);
-}
-
-fn sdf_line(base: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
-    let line = load_line(base);
-    let d = normalize(line.dir);
-    let center = line.origin + line.dir / 2.;
-    let delta = canvas_pos - center;
-    let rd = mat2x2<f32>(d.x, -d.y, d.y, d.x) * delta;
-    let delta2 = abs(rd) - vec2<f32>(length(line.dir), line.thickness) * 0.5;
-    let dist = length(max(delta2, vec2<f32>(0))) + max(min(delta2.x, 0.), min(delta2.y, 0.));
-    let ratio = dist + 0.5; // pixel center is at 0.5 from actual border
-    let alpha = smoothstep(line.color.a, 0., ratio);
-    return vec4<f32>(line.color.rgb, alpha);
 }
 
 @vertex
