@@ -182,13 +182,13 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     let brush = ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7));
     let rrect = RoundedRect {
         rect,
-        radii: Vec2::splat(4.),
+        radius: 4.,
     };
     ctx.fill(rrect, &brush);
     let brush = ctx.solid_brush(Color::rgb(0.6, 0.6, 0.6));
     let rrect = RoundedRect {
         rect: rect.inset(0.5),
-        radii: Vec2::splat(4.5),
+        radius: 4.5,
     };
     ctx.stroke(rrect, &brush, 1.);
 

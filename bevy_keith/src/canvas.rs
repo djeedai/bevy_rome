@@ -90,10 +90,10 @@ impl Primitive {
 
     pub fn is_textured(&self) -> bool {
         match self {
-            Primitive::Line(l) => false,
+            Primitive::Line(_) => false,
             Primitive::Rect(r) => r.is_textured(),
-            Primitive::Text(t) => true,
-            Primitive::QuarterPie(q) => false,
+            Primitive::Text(_) => true,
+            Primitive::QuarterPie(_) => false,
         }
     }
 }
