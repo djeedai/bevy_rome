@@ -44,7 +44,7 @@ impl CanvasTextId {
 
 pub type KeithTextPipeline = TextPipeline; //<CanvasTextId>;
 
-/// System running during the [`CoreStage::PostUpdate`] stage of the main app to
+/// System running during the [`PostUpdate`] schedule of the main app to
 /// process the glyphs of all texts of all [`Canvas`] components.
 ///
 /// The system processes all glyphs of all drawn texts, and inserts the newly
@@ -54,7 +54,7 @@ pub type KeithTextPipeline = TextPipeline; //<CanvasTextId>;
 /// It takes into account the scaling of the window the canvas is rendered onto,
 /// adapting to scale changes.
 ///
-/// [`CoreStage::PostUpdate`]: bevy::app::CoreStage::PostUpdate
+/// [`PostUpdate`]: bevy::app::PostUpdate
 pub fn process_glyphs(
     // Text items which should be reprocessed again, generally when the font hasn't loaded yet.
     // Mapped from the Entity containing the Canvas that owns the text.
@@ -87,7 +87,7 @@ pub fn process_glyphs(
         // - the window scale factor changed
         // - any of the texts of the canvas changed
         // - any font not previously loaded is maybe now available
-        if !factor_changed && !canvas.text_changed() && !font_queue.remove(&entity) {
+        if !factor_changed && !canvas.has_text() && !font_queue.remove(&entity) {
             continue;
         }
 
