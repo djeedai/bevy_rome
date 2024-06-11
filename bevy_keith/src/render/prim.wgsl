@@ -145,6 +145,38 @@ fn sdf_rect(offset: u32, canvas_pos: vec2<f32>, textured: bool) -> vec4<f32> {
     return vec4<f32>(color, alpha);
 }
 
+fn sdf_glyph(offset: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
+    let x = primitives.elems[offset];
+    let y = primitives.elems[offset + 1u];
+    let center = vec2<f32>(x, y);
+    
+    let hw = primitives.elems[offset + 2u];
+    let hh = primitives.elems[offset + 3u];
+    let half_size = vec2<f32>(hw, hh);
+
+    let radius = primitives.elems[offset + 4u];
+    
+    let c = primitives.elems[offset + 5u];
+    let uc: u32 = bitcast<u32>(c);
+    let rgba = unpack4x8unorm(uc);
+    
+    let delta = abs(canvas_pos - center) - half_size + radius;
+    let dist = length(max(delta, vec2<f32>(0))) + max(min(delta.x, 0.), min(delta.y, 0.)) - radius;
+    let ratio = dist + 0.5; // pixel center is at 0.5 from actual border
+    var alpha = smoothstep(rgba.a, 0., ratio);
+
+    let uv_x = primitives.elems[offset + 6u];
+    let uv_y = primitives.elems[offset + 7u];
+    let uv_sx = primitives.elems[offset + 8u];
+    let uv_sy = primitives.elems[offset + 9u];
+    let uv_origin = vec2<f32>(uv_x, uv_y);
+    let uv_scale = vec2<f32>(uv_sx, uv_sy);
+    let uv = (canvas_pos - center) * uv_scale + uv_origin;
+    let tex = textureSample(quad_texture, quad_sampler, uv);
+
+    return vec4<f32>(rgba.rgb, alpha * tex.a * rgba.a);
+}
+
 fn sdf_line(offset: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
     let p0x = primitives.elems[offset];
     let p0y = primitives.elems[offset + 1u];
@@ -201,11 +233,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let tile_dim = get_tile_dim();
     let tile_index = u32(tile_pos.y) * tile_dim.x + u32(tile_pos.x);
 
+    // Position of the fragment relative to the canvas, which currently is hard-coded
+    // to be centered on the render target, and ignore any DPI settings (works in physical pixels).
     let canvas_pos = in.position.xy - view.viewport.zw / 2.;
     var color = vec4<f32>();
 
     // Loop over all primitives for that tile, and accumulate color
-    var prim_offset = offsets_and_counts[tile_index].offset;
+    let prim_offset = offsets_and_counts[tile_index].offset;
     let prim_count = offsets_and_counts[tile_index].count;
     for (var i = prim_offset; i < prim_offset + prim_count; i += 1u) {
         let index_and_kind = unpack_index_and_kind(tiles.primitives[i]);
@@ -215,7 +249,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 color = mix(color, new_color, new_color.a);
             }
             case PRIM_GLYPH {
-                let new_color = sdf_rect(index_and_kind.index, canvas_pos, index_and_kind.textured);
+                let new_color = sdf_glyph(index_and_kind.index, canvas_pos);
                 color = mix(color, new_color, new_color.a);
             }
             case PRIM_LINE {

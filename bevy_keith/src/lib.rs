@@ -43,8 +43,10 @@ pub enum KeithSystem {
     ProcessTextGlyphs,
     /// Add [`Tiles`] and [`TileConfig`] component where missing.
     AddTiles,
-    /// Assign primitives of each [`Canvas`] to its tile.
-    AssignPrimitivesToTiles,
+    /// Resize the [`Tiles`] component of a [`Canvas`] to accomodate the size of
+    /// the render target of a [`Camera`].
+    // FIXME - Currently a canvas always targets the full camera screen size.
+    ResizeTilesToCameraRenderTarget,
     /// Label for [`render::extract_primitives()`].
     ExtractPrimitives,
 }
@@ -58,26 +60,30 @@ impl Plugin for KeithPlugin {
             Shader::from_wgsl
         );
 
-        app.register_type::<Canvas>()
-            .init_resource::<KeithTextPipeline>()
+        app.init_resource::<KeithTextPipeline>()
             .add_systems(PreUpdate, canvas::update_canvas_from_ortho_camera)
             .add_systems(PostUpdate, text::process_glyphs)
             .configure_sets(
                 PostUpdate,
-                (KeithSystem::AddTiles, KeithSystem::AssignPrimitivesToTiles)
+                (
+                    KeithSystem::AddTiles,
+                    KeithSystem::ResizeTilesToCameraRenderTarget,
+                )
                     .chain()
-                    // We need the result of the positioned glyphs to be able to assign them to tiles
+                    // We need the result of the positioned glyphs to be able to assign them to
+                    // tiles
                     .after(text::process_glyphs),
             )
             .add_systems(
                 PostUpdate,
                 (
                     canvas::add_tiles.in_set(KeithSystem::AddTiles),
-                    canvas::assign_primitives_to_tiles
-                        .in_set(KeithSystem::AssignPrimitivesToTiles)
+                    canvas::resize_tiles_to_camera_render_target
+                        .in_set(KeithSystem::ResizeTilesToCameraRenderTarget)
                         .after(bevy::transform::TransformSystem::TransformPropagate)
                         .after(bevy::render::view::VisibilitySystems::CheckVisibility)
                         .after(bevy::render::camera::CameraUpdateSystem),
+                    canvas::allocate_atlas_layouts,
                 ),
             );
     }

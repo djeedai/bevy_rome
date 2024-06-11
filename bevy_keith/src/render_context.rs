@@ -94,7 +94,8 @@ pub struct TextLayout {
     /// Calculated text size based on glyphs alone, updated by
     /// [`process_glyphs()`].
     pub(crate) calculated_size: Vec2,
-    /// Layout info calculated by the [`KeithTextPipeline`] during [`process_glyphs()`].
+    /// Layout info calculated by the [`KeithTextPipeline`] during
+    /// [`process_glyphs()`].
     pub(crate) layout_info: Option<TextLayoutInfo>,
 }
 
@@ -230,7 +231,6 @@ pub struct BevyImage {
 //     }
 // }
 
-#[derive(Debug)]
 pub struct RenderContext<'c> {
     /// Transform applied to all operations on this render context.
     transform: Affine2,

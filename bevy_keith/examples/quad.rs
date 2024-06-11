@@ -1,6 +1,6 @@
 //! Basic quad and text drawing inside a `Canvas`.
 
-use bevy::{log::LogPlugin, math::Rect, prelude::*, window::PrimaryWindow};
+use bevy::{log::LogPlugin, math::Rect, prelude::*, sprite::Anchor, window::PrimaryWindow};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_keith::*;
@@ -17,7 +17,7 @@ fn main() {
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
-                    filter: "quad=trace,bevy_keith=debug,bevy=info".to_string(),
+                    filter: "quad=trace,bevy_keith=trace,bevy=info".to_string(),
                     update_subscriber: None,
                 })
                 .set(WindowPlugin {
@@ -42,7 +42,11 @@ struct MyRes {
     image: Handle<Image>,
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    text_pipeline: Res<KeithTextPipeline>,
+) {
     let font = asset_server.load("FiraSans-Regular.ttf");
     let image = asset_server.load("uvdev.png");
 
@@ -57,6 +61,28 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         .insert(MyRes {
             font: font.clone(),
             image: image.clone(),
+        });
+
+    // Display the text pipeline's glyph atlas as a debug visualization
+    commands
+        .spawn(SpriteBundle {
+            sprite: Sprite {
+                color: Color::rgba_u8(0, 0, 0, 128),
+                custom_size: Some(Vec2::splat(512.)),
+                ..default()
+            },
+            transform: Transform::from_xyz(400., 0., 0.),
+            ..default()
+        })
+        .with_children(|p| {
+            p.spawn(SpriteBundle {
+                texture: text_pipeline.atlas_texture_handle.clone(),
+                sprite: Sprite {
+                    custom_size: Some(Vec2::splat(512.)),
+                    ..default()
+                },
+                ..default()
+            });
         });
 
     // commands.spawn_bundle(Text2dBundle {
@@ -136,97 +162,107 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
 
     // ctx.clear(None, Color::FUCHSIA);
 
-    let brush = ctx.solid_brush(Color::BISQUE);
-    let rect = Rect {
-        min: Vec2::new(-10., -30.),
-        max: Vec2::new(30., 130.),
-    };
-    ctx.fill(rect, &brush);
+    // let brush = ctx.solid_brush(Color::BISQUE);
+    // let rect = Rect {
+    //     min: Vec2::new(-10., -30.),
+    //     max: Vec2::new(30., 130.),
+    // };
+    // ctx.fill(rect, &brush);
 
-    let brush = ctx.solid_brush(Color::PINK);
-    let rounded_rect = RoundedRect {
-        rect: Rect {
-            min: Vec2::ZERO,
-            max: Vec2::splat(50.),
-        },
-        radius: 8.,
-    };
-    ctx.fill(rounded_rect, &brush);
+    // let brush = ctx.solid_brush(Color::PINK);
+    // let rounded_rect = RoundedRect {
+    //     rect: Rect {
+    //         min: Vec2::ZERO,
+    //         max: Vec2::splat(50.),
+    //     },
+    //     radius: 8.,
+    // };
+    // ctx.fill(rounded_rect, &brush);
 
     let text = ctx
         .new_layout("Hello World!")
         .color(Color::ORANGE_RED)
         .font(my_res.font.clone())
-        .font_size(16.)
+        .font_size(32.)
+        .anchor(Anchor::BottomLeft)
         .build();
-    ctx.draw_text(text, Vec2::new(100., -20.0));
+    //ctx.draw_text(text, Vec2::new(300., -20.0));
+    ctx.draw_text(text, Vec2::new(0.0, 0.0));
 
-    let rect = Rect {
-        min: Vec2::new(100., 150.),
-        max: Vec2::new(164., 214.),
-    };
-    ctx.draw_image(rect, my_res.image.clone());
+    // let text = ctx
+    //     .new_layout("SUPER")
+    //     .color(Color::ORANGE_RED)
+    //     .font(my_res.font.clone())
+    //     .font_size(128.)
+    //     .build();
+    // ctx.draw_text(text, Vec2::new(-100., 300.0));
 
-    let brush = ctx.solid_brush(Color::GREEN);
-    for i in 0..=10 {
-        ctx.line(
-            Vec2::new(-200.5, 0.5 + i as f32 * 15.),
-            Vec2::new(0.5, 0.5 + i as f32 * 40.),
-            &brush,
-            1. + i as f32,
-        );
-    }
+    // let rect = Rect {
+    //     min: Vec2::new(100., 150.),
+    //     max: Vec2::new(164., 214.),
+    // };
+    // ctx.draw_image(rect, my_res.image.clone());
 
-    // Rounded rect with border
-    let rect = Rect::from_center_size(Vec2::new(300., 200.), Vec2::new(80., 40.));
-    let brush = ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7));
-    let rrect = RoundedRect {
-        rect,
-        radius: 4.,
-    };
-    ctx.fill(rrect, &brush);
-    let brush = ctx.solid_brush(Color::rgb(0.6, 0.6, 0.6));
-    let rrect = RoundedRect {
-        rect: rect.inset(0.5),
-        radius: 4.5,
-    };
-    ctx.stroke(rrect, &brush, 1.);
+    // let brush = ctx.solid_brush(Color::GREEN);
+    // for i in 0..=10 {
+    //     ctx.line(
+    //         Vec2::new(-200.5, 0.5 + i as f32 * 15.),
+    //         Vec2::new(0.5, 0.5 + i as f32 * 40.),
+    //         &brush,
+    //         1. + i as f32,
+    //     );
+    // }
 
-    // Buttons
-    let rect = Rect {
-        min: Vec2::new(-200., -100.),
-        max: Vec2::new(-80., -70.),
-    };
-    draw_button(&mut ctx, rect, "Submit", my_res.font.clone(), cursor_pos);
-    let rect = Rect {
-        min: Vec2::new(-200., -140.),
-        max: Vec2::new(-80., -110.),
-    };
-    draw_button(&mut ctx, rect, "Cancel", my_res.font.clone(), cursor_pos);
-    let rect = Rect {
-        min: Vec2::new(-200., -180.),
-        max: Vec2::new(-80., -150.),
-    };
-    draw_button(
-        &mut ctx,
-        rect,
-        "This is a very long text that will not fit in the button",
-        my_res.font.clone(),
-        cursor_pos,
-    );
+    // // Rounded rect with border
+    // let rect = Rect::from_center_size(Vec2::new(300., 200.), Vec2::new(80.,
+    // 40.)); let brush = ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7));
+    // let rrect = RoundedRect {
+    //     rect,
+    //     radius: 4.,
+    // };
+    // ctx.fill(rrect, &brush);
+    // let brush = ctx.solid_brush(Color::rgb(0.6, 0.6, 0.6));
+    // let rrect = RoundedRect {
+    //     rect: rect.inset(0.5),
+    //     radius: 4.5,
+    // };
+    // ctx.stroke(rrect, &brush, 1.);
 
-    let s = "The quick brown fox jumps over the lazy dog THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG !£$%^&*()_}{][#';~@:";
-    for (i, st) in s.as_bytes().chunks(10).enumerate() {
-        let rect = Rect {
-            min: Vec2::new(-400., -180. + i as f32 * 35.),
-            max: Vec2::new(-280., -150. + i as f32 * 35.),
-        };
-        draw_button(
-            &mut ctx,
-            rect,
-            &format!("Button #{} {}", i, String::from_utf8_lossy(st)),
-            my_res.font.clone(),
-            cursor_pos,
-        );
-    }
+    // // Buttons
+    // let rect = Rect {
+    //     min: Vec2::new(-200., -100.),
+    //     max: Vec2::new(-80., -70.),
+    // };
+    // draw_button(&mut ctx, rect, "Submit", my_res.font.clone(), cursor_pos);
+    // let rect = Rect {
+    //     min: Vec2::new(-200., -140.),
+    //     max: Vec2::new(-80., -110.),
+    // };
+    // draw_button(&mut ctx, rect, "Cancel", my_res.font.clone(), cursor_pos);
+    // let rect = Rect {
+    //     min: Vec2::new(-200., -180.),
+    //     max: Vec2::new(-80., -150.),
+    // };
+    // draw_button(
+    //     &mut ctx,
+    //     rect,
+    //     "This is a very long text that will not fit in the button",
+    //     my_res.font.clone(),
+    //     cursor_pos,
+    // );
+
+    // let s = "The quick brown fox jumps over the lazy dog THE QUICK BROWN FOX
+    // JUMPS OVER THE LAZY DOG !£$%^&*()_}{][#';~@:"; for (i, st) in
+    // s.as_bytes().chunks(10).enumerate() {     let rect = Rect {
+    //         min: Vec2::new(-400., -180. + i as f32 * 35.),
+    //         max: Vec2::new(-280., -150. + i as f32 * 35.),
+    //     };
+    //     draw_button(
+    //         &mut ctx,
+    //         rect,
+    //         &format!("Button #{} {}", i, String::from_utf8_lossy(st)),
+    //         my_res.font.clone(),
+    //         cursor_pos,
+    //     );
+    // }
 }
