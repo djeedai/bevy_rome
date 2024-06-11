@@ -41,7 +41,7 @@ use bevy::{
 
 use crate::{
     canvas::{
-        Canvas, OffsetAndCount, PrimImpl, Primitive, PrimitiveIndexAndKind, PrimitiveInfo, Tiles,
+        Canvas, OffsetAndCount, Primitive, PrimitiveIndexAndKind, PrimitiveInfo, Tiles,
     },
     text::CanvasTextId,
     PRIMITIVE_SHADER_HANDLE,
@@ -704,9 +704,9 @@ pub(crate) fn extract_primitives(
     };
     let scale_factor = primary_window.scale_factor() as f32;
     let inv_scale_factor = 1. / scale_factor;
+    trace!("window: scale_factor={scale_factor:?} inv_scale_factor={inv_scale_factor:?}");
 
     let extracted_canvases = &mut extracted_canvases.canvases;
-
     extracted_canvases.clear();
 
     for (entity, maybe_computed_visibility, camera, proj, canvas, transform, tiles) in
@@ -718,12 +718,14 @@ pub(crate) fn extract_primitives(
             continue;
         }
 
-        // Get screen size of camera, to calculate number of tiles to allocate
+        // Get screen size of camera
         let Some(screen_size) = camera.physical_viewport_size() else {
             continue;
         };
 
         // Swap render and main app primitive buffer
+        // FIXME - Can't swap in Extract phase because main world is read-only; clone
+        // instead
         let primitives = canvas.buffer().clone();
         trace!(
             "Canvas on Entity {:?} has {} primitives and {} text layouts, viewport_origin={:?}, viewport_area={:?}, scale_factor={}, proj.scale={}",
@@ -746,83 +748,74 @@ pub(crate) fn extract_primitives(
             let text_id = CanvasTextId::from_raw(entity, text.id);
             trace!("Extracting text {:?}...", text_id);
 
-            if let Some(text_layout_info) = &text.layout_info {
-                let width = text_layout_info.logical_size.x * inv_scale_factor;
-                let height = text_layout_info.logical_size.y * inv_scale_factor;
+            let Some(text_layout_info) = &text.layout_info else {
+                trace!("Text layout not computed, skipping text...");
+                continue;
+            };
 
-                let text_anchor = -(text.anchor.as_vec() + 0.5);
-                let alignment_translation = text_layout_info.logical_size * text_anchor;
+            // FIXME - Don't use logical_size to then convert back to physical_size, just store physical_size to begin with...
+            let width = text_layout_info.logical_size.x * inv_scale_factor;
+            let height = text_layout_info.logical_size.y * inv_scale_factor;
+
+            // Offset the text based on its anchor (default Anchor::Center is (0,0)).
+            // Note that anchor, and therefore alignment_translation, is calculated from bottom left corner, Y up.
+            let text_anchor = -(text.anchor.as_vec() + 0.5);
+            let alignment_translation = text_layout_info.logical_size * text_anchor;
+
+            trace!(
+                "-> {} glyphs, logical_w={} logical_h={} scale_factor={} logical_alignment_translation={:?}",
+                text_layout_info.glyphs.len(),
+                width,
+                height,
+                scale_factor,
+                alignment_translation
+            );
+
+            let mut extracted_glyphs = vec![];
+            for text_glyph in &text_layout_info.glyphs {
+                let color = text.sections[text_glyph.section_index]
+                    .style
+                    .color
+                    .as_linear_rgba_u32();
+                let atlas_layout = texture_atlases
+                    .get(&text_glyph.atlas_info.texture_atlas)
+                    .unwrap();
+                let handle = text_glyph.atlas_info.texture.clone_weak();
+                let index = text_glyph.atlas_info.glyph_index as usize;
+                let uv_rect = atlas_layout.textures[index];
+
+                let glyph_offset = alignment_translation + text_glyph.position;
 
                 trace!(
-                    "-> {} glyphs, w={} h={} scale={} alignment_translation={:?}",
-                    text_layout_info.glyphs.len(),
-                    width,
-                    height,
-                    scale_factor,
-                    alignment_translation
-                );
-
-                let mut extracted_glyphs = vec![];
-                for text_glyph in &text_layout_info.glyphs {
-                    trace!(
-                        "glyph: position={:?} size={:?}",
-                        text_glyph.position,
-                        text_glyph.size
-                    );
-                    let color = text.sections[text_glyph.section_index]
-                        .style
-                        .color
-                        .as_linear_rgba_u32();
-                    let atlas = texture_atlases
-                        .get(&text_glyph.atlas_info.texture_atlas)
-                        .unwrap();
-                    let handle = text_glyph.atlas_info.texture.clone_weak();
-                    let index = text_glyph.atlas_info.glyph_index as usize;
-                    let uv_rect = atlas.textures[index];
-
-                    let glyph_offset = alignment_translation + text_glyph.position;
-
-                    extracted_glyphs.push(ExtractedGlyph {
-                        offset: glyph_offset,
-                        size: text_glyph.size,
-                        color,
-                        handle_id: handle.id(),
-                        uv_rect,
-                    });
-
-                    // let glyph_transform = Transform::from_translation(
-                    //     alignment_offset * scale_factor +
-                    // text_glyph.position.extend(0.), );
-
-                    // let transform =
-                    // text_transform.mul_transform(glyph_transform);
-
-                    // extracted_sprites.sprites.push(ExtractedSprite {
-                    //     transform,
-                    //     color,
-                    //     rect,
-                    //     custom_size: None,
-                    //     image_handle_id: handle.id,
-                    //     flip_x: false,
-                    //     flip_y: false,
-                    //     anchor: Anchor::Center.as_vec(),
-                    // });
-                }
-
-                let index = text.id as usize;
-                trace!(
-                    "Inserting index={} with {} glyphs into extracted texts of len={}...",
+                    "glyph: position={:?} size={:?} color=0x{:x} glyph_index={:?} uv_rect={:?} glyph_offset={:?}",
+                    text_glyph.position,
+                    text_glyph.size,
+                    color,
                     index,
-                    extracted_glyphs.len(),
-                    extracted_texts.len(),
+                    uv_rect,
+                    glyph_offset,
                 );
-                if index >= extracted_texts.len() {
-                    extracted_texts.resize_with(index + 1, Default::default);
-                }
-                extracted_texts[index].glyphs = extracted_glyphs;
-            } else {
-                trace!("Glyphs not ready yet...");
+
+                extracted_glyphs.push(ExtractedGlyph {
+                    offset: glyph_offset,
+                    size: text_glyph.size,
+                    color,
+                    handle_id: handle.id(),
+                    uv_rect,
+                });
             }
+
+            let index = text.id as usize;
+            trace!(
+                "Inserting index={} with {} glyphs into extracted texts of len={}...",
+                index,
+                extracted_glyphs.len(),
+                extracted_texts.len(),
+            );
+            if index >= extracted_texts.len() {
+                extracted_texts.resize_with(index + 1, Default::default);
+            }
+            extracted_texts[index].glyphs = extracted_glyphs;
         }
 
         // Save extracted canvas
@@ -862,21 +855,26 @@ impl<'a> SubPrimIter<'a> {
 }
 
 impl<'a> Iterator for SubPrimIter<'a> {
-    type Item = AssetId<Image>;
+    type Item = (AssetId<Image>, Aabb2d);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(prim) = self.prim {
-            let PrimitiveInfo { row_count: _ } = prim.info(self.texts);
+            let PrimitiveInfo { row_count: _, sub_prim_count: _ } = prim.info(self.texts);
             match prim {
                 Primitive::Text(text) => {
                     if text.id as usize >= self.texts.len() {
                         return None; // not ready
                     }
-                    let text = &self.texts[text.id as usize];
-                    if self.index < text.glyphs.len() {
-                        let image_handle_id = text.glyphs[self.index].handle_id;
+                    let extracted_text = &self.texts[text.id as usize];
+                    if self.index < extracted_text.glyphs.len() {
+                        let glyph = &extracted_text.glyphs[self.index];
+                        let image_handle_id = glyph.handle_id;
+                        let aabb = Aabb2d {
+                            min: text.rect.min + glyph.offset,
+                            max: text.rect.min + glyph.offset + glyph.size,
+                        };
                         self.index += 1;
-                        Some(image_handle_id)
+                        Some((image_handle_id, aabb))
                     } else {
                         self.prim = None;
                         None
@@ -889,12 +887,12 @@ impl<'a> Iterator for SubPrimIter<'a> {
                         AssetId::<Image>::invalid()
                     };
                     self.prim = None;
-                    Some(handle_id)
+                    Some((handle_id, rect.aabb()))
                 }
                 _ => {
                     self.prim = None;
                     // Currently all other primitives are non-textured
-                    Some(AssetId::<Image>::invalid())
+                    Some((AssetId::<Image>::invalid(), Aabb2d::new(Vec2::ZERO, Vec2::ZERO)))
                 }
             }
         } else {
@@ -988,45 +986,42 @@ pub(crate) fn prepare_primitives(
         for prim in &extracted_canvas.primitives {
             let base_index = primitives.len() as u32;
             let is_textured = prim.is_textured();
-            let prim_index = PrimitiveIndexAndKind::new(base_index, prim.gpu_kind(), is_textured);
+            let mut prim_index = PrimitiveIndexAndKind::new(base_index, prim.gpu_kind(), is_textured);
 
-            // Calculate once and save the AABB of the primitive, for tile assignment
-            // purpose. Since there are many more tiles than primitives, it's worth doing
-            // that calculation only once ahead of time before looping over tiles.
-            let mut aabb = prim.aabb();
-            aabb.min += extracted_canvas.canvas_origin;
-            aabb.max += extracted_canvas.canvas_origin;
-            prepared_primitives.push(PreparedPrimitive { aabb, prim_index });
-
-            trace!("+ Primitive @ base_index={} aabb={:?}", base_index, aabb);
+            trace!("+ Primitive @ base_index={}", base_index);
 
             // Serialize the primitive
-            let PrimitiveInfo { row_count } = prim.info(&extracted_canvas.texts[..]);
-            trace!("  row_count={}", row_count);
-            if row_count > 0 {
+            let PrimitiveInfo { row_count, sub_prim_count } = prim.info(&extracted_canvas.texts[..]);
+            trace!("  row_count={} sub_prim_count={}", row_count, sub_prim_count);
+            if row_count > 0 && sub_prim_count > 0 {
                 let row_count = row_count as usize;
+                let sub_prim_count = sub_prim_count as usize;
+                let total_row_count = row_count * sub_prim_count;
 
                 // Reserve some (uninitialized) storage for new data
-                primitives.reserve(row_count);
+                primitives.reserve(total_row_count);
                 let prim_slice = primitives.spare_capacity_mut();
 
                 // Write primitives and indices directly into storage
                 prim.write(
                     &extracted_canvas.texts[..],
-                    &mut prim_slice[..row_count],
+                    &mut prim_slice[..total_row_count],
                     extracted_canvas.scale_factor,
                 );
 
                 // Apply new storage sizes once data is initialized
-                let new_row_count = primitives.len() + row_count;
+                let new_row_count = primitives.len() + total_row_count;
                 unsafe { primitives.set_len(new_row_count) };
 
-                trace!("New primitive elements: (+{})", row_count);
+                trace!("New primitive elements: (+{})", total_row_count);
                 trace_list!(
                     "+ f32[] =",
-                    primitives[new_row_count - row_count..new_row_count],
+                    primitives[new_row_count - total_row_count..new_row_count],
                     " {}"
                 );
+
+                // Reserve storage for prepared primitives
+                prepared_primitives.reserve(sub_prim_count);
             }
 
             // Loop on sub-primitives; Text primitives expand to one Rect primitive
@@ -1034,7 +1029,15 @@ pub(crate) fn prepare_primitives(
             // can split the draw into a new batch.
             trace!("Batch sub-primitives...");
             let batch_iter = SubPrimIter::new(prim, &extracted_canvas.texts);
-            for image_handle_id in batch_iter {
+            for (image_handle_id, mut aabb) in batch_iter {
+                // Calculate once and save the AABB of the primitive, for tile assignment
+                // purpose. Since there are many more tiles than primitives, it's worth doing
+                // that calculation only once ahead of time before looping over tiles.
+                aabb.min += extracted_canvas.canvas_origin;
+                aabb.max += extracted_canvas.canvas_origin;
+                prepared_primitives.push(PreparedPrimitive { aabb, prim_index });
+                prim_index.0 += row_count;
+
                 let new_batch = PrimitiveBatch {
                     image_handle_id,
                     canvas_entity: *entity,
@@ -1078,6 +1081,7 @@ pub(crate) fn prepare_primitives(
 
         // Assign primitives to tiles
         let tile_size = extracted_canvas.tiles.tile_size.as_vec2();
+        extracted_canvas.tiles.offset_and_count.clear();
         for ty in 0..extracted_canvas.tiles.dimensions.y {
             for tx in 0..extracted_canvas.tiles.dimensions.x {
                 let min = Vec2::new(tx as f32, ty as f32) * tile_size;
@@ -1092,13 +1096,21 @@ pub(crate) fn prepare_primitives(
                 let mut count = 0;
                 for prim in &prepared_primitives {
                     if prim.aabb.intersects(&tile_aabb) {
-                        // trace!("Prim #{count} base_index={base_index} aabb={prim_aabb:?}
-                        // overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
+                        let prim_aabb = prim.aabb;
+                        trace!("Prim #{count} offset={offset} aabb={prim_aabb:?} overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
                         extracted_canvas.tiles.primitives.push(prim.prim_index);
                         count += 1;
                     }
                 }
 
+                if count > 0 {
+                    trace!(
+                        "Append to o&c buffer len={} entry offset={} count={}",
+                        extracted_canvas.tiles.offset_and_count.len(),
+                        offset,
+                        count
+                    );
+                }
                 extracted_canvas
                     .tiles
                     .offset_and_count

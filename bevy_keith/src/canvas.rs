@@ -1,19 +1,20 @@
 use std::mem::MaybeUninit;
 
 use bevy::{
-    asset::AssetId,
+    asset::{AssetId, Assets, Handle},
     ecs::{
         component::Component,
         entity::Entity,
         query::{With, Without},
         reflect::ReflectComponent,
-        system::{Commands, Query},
+        system::{Commands, Query, ResMut},
     },
     log::trace,
     math::{bounding::Aabb2d, Rect, UVec2, Vec2, Vec3},
     prelude::{BVec2, OrthographicProjection},
     reflect::Reflect,
     render::{camera::Camera, color::Color, primitives::Frustum, texture::Image},
+    sprite::{DynamicTextureAtlasBuilder, TextureAtlasLayout},
     transform::components::GlobalTransform,
     utils::default,
 };
@@ -26,18 +27,10 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PrimitiveInfo {
+    /// Row count per sub-primitive.
     pub row_count: u32,
-}
-
-/// Implementation trait for primitives.
-pub(crate) trait PrimImpl {
-    /// Get the size of the primitive and index buffers, in number of elements.
-    fn info(&self, texts: &[ExtractedText]) -> PrimitiveInfo;
-
-    /// Write the primitive and index buffers into the provided slices.
-    ///
-    /// The `scale_factor` is a scaling for text glyphs only.
-    fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], scale_factor: f32);
+    /// Number of sub-primitives.
+    pub sub_prim_count: u32,
 }
 
 /// Kind of primitives understood by the GPU shader.
@@ -79,11 +72,11 @@ impl Primitive {
         }
     }
 
-    pub fn aabb(&self) -> Aabb2d {
+    pub fn aabb(&self, texts: &[ExtractedText]) -> Aabb2d {
         match self {
             Primitive::Line(l) => l.aabb(),
             Primitive::Rect(r) => r.aabb(),
-            Primitive::Text(t) => t.aabb(),
+            Primitive::Text(t) => t.aabb(texts),
             Primitive::QuarterPie(q) => q.aabb(),
         }
     }
@@ -95,6 +88,24 @@ impl Primitive {
             Primitive::Text(_) => true,
             Primitive::QuarterPie(_) => false,
         }
+    }
+
+    pub(crate) fn info(&self, texts: &[ExtractedText]) -> PrimitiveInfo {
+        match &self {
+            Primitive::Line(l) => l.info(),
+            Primitive::Rect(r) => r.info(),
+            Primitive::Text(t) => t.info(texts),
+            Primitive::QuarterPie(q) => q.info(),
+        }
+    }
+
+    pub(crate) fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], scale_factor: f32) {
+        match &self {
+            Primitive::Line(l) => l.write(prim, scale_factor),
+            Primitive::Rect(r) => r.write(prim, scale_factor),
+            Primitive::Text(t) => t.write(texts, prim, scale_factor),
+            Primitive::QuarterPie(q) => q.write(prim, scale_factor),
+        };
     }
 }
 
@@ -122,26 +133,6 @@ impl From<QuarterPiePrimitive> for Primitive {
     }
 }
 
-impl PrimImpl for Primitive {
-    fn info(&self, texts: &[ExtractedText]) -> PrimitiveInfo {
-        match &self {
-            Primitive::Line(l) => l.info(texts),
-            Primitive::Rect(r) => r.info(texts),
-            Primitive::Text(t) => t.info(texts),
-            Primitive::QuarterPie(q) => q.info(texts),
-        }
-    }
-
-    fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], scale_factor: f32) {
-        match &self {
-            Primitive::Line(l) => l.write(texts, prim, scale_factor),
-            Primitive::Rect(r) => r.write(texts, prim, scale_factor),
-            Primitive::Text(t) => t.write(texts, prim, scale_factor),
-            Primitive::QuarterPie(q) => q.write(texts, prim, scale_factor),
-        };
-    }
-}
-
 #[derive(Debug, Default, Clone, Copy)]
 pub struct LinePrimitive {
     pub start: Vec2,
@@ -163,14 +154,12 @@ impl LinePrimitive {
         let max = p0.max(p1).max(p2).max(p3);
         Aabb2d { min, max }
     }
-}
 
-impl PrimImpl for LinePrimitive {
-    fn info(&self, _texts: &[ExtractedText]) -> PrimitiveInfo {
-        PrimitiveInfo { row_count: 6 }
+    fn info(&self) -> PrimitiveInfo {
+        PrimitiveInfo { row_count: 6, sub_prim_count: 1 }
     }
 
-    fn write(&self, _texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
+    fn write(&self, prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
         assert_eq!(6, prim.len());
         prim[0].write(self.start.x);
         prim[1].write(self.start.y);
@@ -230,16 +219,14 @@ impl RectPrimitive {
             Self::ROW_COUNT
         }
     }
-}
 
-impl PrimImpl for RectPrimitive {
-    fn info(&self, _texts: &[ExtractedText]) -> PrimitiveInfo {
+    fn info(&self) -> PrimitiveInfo {
         PrimitiveInfo {
-            row_count: self.row_count(),
+            row_count: self.row_count(), sub_prim_count: 1,
         }
     }
 
-    fn write(&self, _texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
+    fn write(&self, prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
         assert_eq!(
             self.row_count() as usize,
             prim.len(),
@@ -277,61 +264,108 @@ pub struct TextPrimitive {
 impl TextPrimitive {
     /// Number of elements used by each single glyph in the primitive element
     /// buffer.
-    pub const ROW_PER_GLYPH: u32 = 9;
+    pub const ROW_PER_GLYPH: u32 = RectPrimitive::ROW_COUNT_TEX;
 
-    pub fn aabb(&self) -> Aabb2d {
-        // TODO : verify what is self.rect, and that it bounds the text glyphs indeed
-        Aabb2d {
+    pub fn aabb(&self, texts: &[ExtractedText]) -> Aabb2d {
+        let text = &texts[self.id as usize];
+        let mut aabb = Aabb2d {
             min: self.rect.min,
             max: self.rect.max,
+        };
+        trace!("Text #{:?} aabb={:?}", self.id, aabb);
+        for glyph in &text.glyphs {
+            aabb.min = aabb.min.min(self.rect.min + glyph.offset);
+            aabb.max = aabb.max.max(self.rect.min + glyph.offset + glyph.size);
+            trace!(
+                "  > add glyph offset={:?} size={:?}, new aabb {:?}",
+                glyph.offset,
+                glyph.size,
+                aabb
+            );
+        }
+        aabb
+    }
+
+    pub fn glyph_aabb(&self, index: usize, texts: &[ExtractedText]) -> Aabb2d {
+        let text = &texts[self.id as usize];
+        let glyph = &text.glyphs[index];
+        Aabb2d {
+            min: self.rect.min + glyph.offset,
+            max: self.rect.min + glyph.offset + glyph.size,
         }
     }
-}
 
-impl PrimImpl for TextPrimitive {
     fn info(&self, texts: &[ExtractedText]) -> PrimitiveInfo {
         let index = self.id as usize;
         if index < texts.len() {
             let glyph_count = texts[index].glyphs.len() as u32;
             PrimitiveInfo {
-                row_count: glyph_count * Self::ROW_PER_GLYPH,
+                row_count: Self::ROW_PER_GLYPH, sub_prim_count: glyph_count,
             }
         } else {
-            PrimitiveInfo { row_count: 0 }
+            PrimitiveInfo { row_count: 0, sub_prim_count: 0 }
         }
     }
 
-    fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], scale_factor: f32) {
+    fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
         let index = self.id as usize;
         let glyphs = &texts[index].glyphs;
         let glyph_count = glyphs.len();
         assert_eq!(glyph_count * Self::ROW_PER_GLYPH as usize, prim.len());
         let mut ip = 0;
-        let inv_scale_factor = 1. / scale_factor;
+        //let inv_scale_factor = 1. / scale_factor;
         for i in 0..glyph_count {
             let x = glyphs[i].offset.x;
             let y = glyphs[i].offset.y;
-            let w = glyphs[i].size.x;
-            let h = glyphs[i].size.y;
+            let hw = glyphs[i].size.x / 2.0;
+            let hh = glyphs[i].size.y / 2.0;
+
+            // let x = x * inv_scale_factor;
+            // let y = y * inv_scale_factor;
+            // let hw = hw * inv_scale_factor;
+            // let hh = hh * inv_scale_factor;
+
             // Glyph position is center of rect, we need bottom-left corner
-            let x = x - w / 2.;
-            let y = y - h / 2.;
-            let uv_x = glyphs[i].uv_rect.min.x / 512.0;
-            let uv_y = glyphs[i].uv_rect.min.y / 512.0;
-            let uv_w = glyphs[i].uv_rect.max.x / 512.0 - uv_x;
-            let uv_h = glyphs[i].uv_rect.max.y / 512.0 - uv_y;
+            //let x = x - w / 2.;
+            //let y = y - h / 2.;
+
+            // FIXME - hard-coded texture size
+            let uv_x = glyphs[i].uv_rect.min.x / 1024.0;
+            let uv_y = glyphs[i].uv_rect.min.y / 1024.0;
+            let uv_w = glyphs[i].uv_rect.max.x / 1024.0 - uv_x;
+            let uv_h = glyphs[i].uv_rect.max.y / 1024.0 - uv_y;
+
             // Glyph UV is flipped vertically
-            let uv_y = uv_y + uv_h;
-            let uv_h = -uv_h;
-            prim[ip + 0].write(self.rect.min.x + x * inv_scale_factor);
-            prim[ip + 1].write(self.rect.min.y + y * inv_scale_factor);
-            prim[ip + 2].write(w * inv_scale_factor);
-            prim[ip + 3].write(h * inv_scale_factor);
-            prim[ip + 4].write(bytemuck::cast(glyphs[i].color));
-            prim[ip + 5].write(uv_x);
-            prim[ip + 6].write(uv_y);
-            prim[ip + 7].write(uv_w);
-            prim[ip + 8].write(uv_h);
+            // let uv_y = uv_y + uv_h;
+            // let uv_h = -uv_h;
+
+            // center pos
+            // we round() here to work around a bug: if the pixel rect is not aligned on the screen pixel grid,
+            // the UV coordinates may end up being < 0.5 or > w + 0.5, which then bleeds into adjacent pixels.
+            // it looks like the rasterizing of the glyphs already adds 1 pixel border, so we should remove that
+            // border in the SDF rect, so that we never sample the texture beyond half that 1 px border, which
+            // would linearly blend with the next pixel (outside the glyph rect).
+            prim[ip + 0].write((self.rect.min.x + x).round() + hw);
+            prim[ip + 1].write((self.rect.min.y + y).round() + hh);
+
+            // half size
+            prim[ip + 2].write(hw);
+            prim[ip + 3].write(hh);
+
+            // radius
+            prim[ip + 4].write(0.);
+
+            // color
+            prim[ip + 5].write(bytemuck::cast(glyphs[i].color));
+
+            // uv_offset (at center pos)
+            prim[ip + 6].write(uv_x + uv_w / 2.0);
+            prim[ip + 7].write(uv_y + uv_h / 2.0);
+
+            // uv_scale
+            prim[ip + 8].write(1.0 / 1024.0);
+            prim[ip + 9].write(1.0 / 1024.0);
+
             ip += Self::ROW_PER_GLYPH as usize;
         }
     }
@@ -386,16 +420,14 @@ impl QuarterPiePrimitive {
     const fn row_count(&self) -> u32 {
         Self::ROW_COUNT
     }
-}
 
-impl PrimImpl for QuarterPiePrimitive {
-    fn info(&self, _texts: &[ExtractedText]) -> PrimitiveInfo {
+    fn info(&self) -> PrimitiveInfo {
         PrimitiveInfo {
-            row_count: self.row_count(),
+            row_count: self.row_count(), sub_prim_count: 1,
         }
     }
 
-    fn write(&self, _texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
+    fn write(&self, prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
         assert_eq!(self.row_count() as usize, prim.len());
         let radii_mask = BVec2::new(self.flip_x, self.flip_y);
         let signed_radii = Vec2::select(radii_mask, -self.radii, self.radii);
@@ -414,8 +446,7 @@ impl PrimImpl for QuarterPiePrimitive {
 ///
 /// By default the dimensions of the canvas are automatically computed and
 /// updated based on that projection.
-#[derive(Component, Debug, Default, Reflect)]
-#[reflect(Component)]
+#[derive(Component)]
 pub struct Canvas {
     /// The canvas dimensions relative to its origin.
     rect: Rect,
@@ -429,11 +460,27 @@ pub struct Canvas {
     /// [`clear()`]: crate::Canvas::clear
     pub background_color: Option<Color>,
     /// Collection of drawn primitives.
-    #[reflect(ignore)]
     primitives: Vec<Primitive>,
     /// Collection of allocated texts.
-    #[reflect(ignore)]
     pub(crate) text_layouts: Vec<TextLayout>,
+    /// Atlas builder.
+    pub(crate) atlas_builder: DynamicTextureAtlasBuilder,
+    /// Atlas layout. Needs to be a separate asset resource due to Bevy's API
+    /// only.
+    pub(crate) atlas_layout: Handle<TextureAtlasLayout>,
+}
+
+impl Default for Canvas {
+    fn default() -> Self {
+        Self {
+            rect: Rect::default(),
+            background_color: None,
+            primitives: vec![],
+            text_layouts: vec![],
+            atlas_builder: DynamicTextureAtlasBuilder::new(Vec2::splat(1024.0), 0),
+            atlas_layout: Handle::default(),
+        }
+    }
 }
 
 impl Canvas {
@@ -600,6 +647,12 @@ impl Tiles {
         self.offset_and_count.clear();
         self.offset_and_count
             .reserve(self.dimensions.x as usize * self.dimensions.y as usize);
+
+        trace!(
+            "Resized Tiles at tile_size={:?} dim={:?} and cleared buffers",
+            self.tile_size,
+            self.dimensions
+        );
     }
 }
 
@@ -619,22 +672,11 @@ pub fn add_tiles(
     }
 }
 
-pub fn assign_primitives_to_tiles(
-    mut views: Query<(
-        Entity,
-        &Canvas,
-        &GlobalTransform,
-        &Camera,
-        &OrthographicProjection,
-        &Frustum,
-        &TileConfig,
-        &mut Tiles,
-    )>,
+pub fn resize_tiles_to_camera_render_target(
+    mut views: Query<(&Camera, &TileConfig, &mut Tiles), With<Canvas>>,
 ) {
     // Loop on all camera views
-    for (_view_entity, _canvas, _camera_transform, camera, _proj, _frustum, _tile_config, tiles) in
-        &mut views
-    {
+    for (camera, _tile_config, tiles) in &mut views {
         let Some(screen_size) = camera.physical_viewport_size() else {
             continue;
         };
@@ -642,5 +684,20 @@ pub fn assign_primitives_to_tiles(
         // Resize tile storage to fit the viewport size
         let tiles = tiles.into_inner();
         tiles.update_size(screen_size);
+    }
+}
+
+pub fn allocate_atlas_layouts(
+    mut query: Query<&mut Canvas>,
+    mut layouts: ResMut<Assets<TextureAtlasLayout>>,
+) {
+    for mut canvas in query.iter_mut() {
+        // FIXME
+        let size = Vec2::splat(1024.0);
+
+        // FIXME - also check for resize...
+        if canvas.atlas_layout == Handle::<TextureAtlasLayout>::default() {
+            canvas.atlas_layout = layouts.add(TextureAtlasLayout::new_empty(size));
+        }
     }
 }
