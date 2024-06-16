@@ -918,7 +918,7 @@ impl<'a> Iterator for SubPrimIter<'a> {
                     // Currently all other primitives are non-textured
                     Some((
                         AssetId::<Image>::invalid(),
-                        Aabb2d::new(Vec2::ZERO, Vec2::ZERO),
+                        prim.aabb(&[]),
                     ))
                 }
             }
