@@ -101,9 +101,14 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveBufferBindGr
             primitive_batch.canvas_entity,
             primitive_batch.bind_group(),
         );
-        pass.set_bind_group(I, primitive_batch.bind_group(), &[]);
-        trace!("SetPrimitiveBufferBindGroup: SUCCESS");
-        RenderCommandResult::Success
+        if let Some(bind_group) = primitive_batch.bind_group() {
+            pass.set_bind_group(I, bind_group, &[]);
+            trace!("SetPrimitiveBufferBindGroup: SUCCESS");
+            RenderCommandResult::Success
+        } else {
+            trace!("SetPrimitiveBufferBindGroup: FAILURE (missing bind group)");
+            RenderCommandResult::Failure
+        }
     }
 }
 
@@ -267,13 +272,20 @@ impl PrimitiveBatch {
         }
     }
 
-    pub fn bind_group(&self) -> &BindGroup {
+    /// Get the bind group for the primitive buffers associated with this batch.
+    ///
+    /// Returns `Some` if the bind group was successfully prepared (created), or `None` otherwise.
+    pub fn bind_group(&self) -> Option<&BindGroup> {
         match &self.primitive_bind_group {
-            BatchBuffers::Prepared(bind_group) => bind_group,
-            _ => panic!("Missing bind group for batch buffers"),
+            BatchBuffers::Prepared(bind_group) => Some(bind_group),
+            _ => None,
         }
     }
 
+    /// Check if the given image handle is compatible with the current batch.
+    ///
+    /// The handle is compatible if either the batch's own handle or the provided handle is invalid (non-textured),
+    /// or they are both valid and equal.
     fn is_handle_compatible(&self, handle: AssetId<Image>) -> bool {
         // Any invalid handle means "no texture", which can be batched with any other
         // texture. Only different (valid) textures cannot be batched together.
@@ -916,10 +928,7 @@ impl<'a> Iterator for SubPrimIter<'a> {
                 _ => {
                     self.prim = None;
                     // Currently all other primitives are non-textured
-                    Some((
-                        AssetId::<Image>::invalid(),
-                        prim.aabb(&[]),
-                    ))
+                    Some((AssetId::<Image>::invalid(), prim.aabb(&[])))
                 }
             }
         } else {
@@ -1142,7 +1151,11 @@ pub(crate) fn prepare_primitives(
                                 .push(OffsetAndCount { offset, count });
                         }
                     }
-                    trace!("{} primitives overlap {} tiles", prepared_primitives.len() as u32 - pp_offset, tile_count);
+                    trace!(
+                        "{} primitives overlap {} tiles",
+                        prepared_primitives.len() as u32 - pp_offset,
+                        tile_count
+                    );
 
                     let oc_count = extracted_canvas.tiles.offset_and_count.len() as u32 - oc_offset;
                     current_batch.primitive_bind_group = BatchBuffers::Raw(oc_offset, oc_count);
@@ -1210,7 +1223,11 @@ pub(crate) fn prepare_primitives(
                         .push(OffsetAndCount { offset, count });
                 }
             }
-            trace!("{} primitives overlap {} tiles", prepared_primitives.len() as u32 - pp_offset, tile_count);
+            trace!(
+                "{} primitives overlap {} tiles",
+                prepared_primitives.len() as u32 - pp_offset,
+                tile_count
+            );
 
             let oc_count = extracted_canvas.tiles.offset_and_count.len() as u32 - oc_offset;
             current_batch.primitive_bind_group = BatchBuffers::Raw(oc_offset, oc_count);
