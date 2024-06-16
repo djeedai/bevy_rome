@@ -932,7 +932,7 @@ impl<'a> Iterator for SubPrimIter<'a> {
                 _ => {
                     self.prim = None;
                     // Currently all other primitives are non-textured
-                    Some((AssetId::<Image>::invalid(), prim.aabb(&[])))
+                    Some((AssetId::<Image>::invalid(), prim.aabb()))
                 }
             }
         } else {

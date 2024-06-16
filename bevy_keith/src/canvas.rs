@@ -6,22 +6,19 @@ use bevy::{
         component::Component,
         entity::Entity,
         query::{With, Without},
-        reflect::ReflectComponent,
         system::{Commands, Query, ResMut},
     },
     log::trace,
     math::{bounding::Aabb2d, Rect, UVec2, Vec2, Vec3},
     prelude::{BVec2, OrthographicProjection},
-    reflect::Reflect,
-    render::{camera::Camera, color::Color, primitives::Frustum, texture::Image},
+    render::{camera::Camera, color::Color, texture::Image},
     sprite::{DynamicTextureAtlasBuilder, TextureAtlasLayout},
-    transform::components::GlobalTransform,
     utils::default,
 };
 use bytemuck::{Pod, Zeroable};
 
 use crate::{
-    render::ExtractedText,
+    render::{ExtractedCanvas, ExtractedText},
     render_context::{RenderContext, TextLayout},
 };
 
@@ -72,11 +69,11 @@ impl Primitive {
         }
     }
 
-    pub fn aabb(&self, texts: &[ExtractedText]) -> Aabb2d {
+    pub fn aabb(&self) -> Aabb2d {
         match self {
             Primitive::Line(l) => l.aabb(),
             Primitive::Rect(r) => r.aabb(),
-            Primitive::Text(t) => t.aabb(texts),
+            Primitive::Text(_) => panic!("Cannot compute text AABB intrinsically."),
             Primitive::QuarterPie(q) => q.aabb(),
         }
     }
@@ -275,8 +272,8 @@ impl TextPrimitive {
     /// buffer.
     pub const ROW_PER_GLYPH: u32 = RectPrimitive::ROW_COUNT_TEX;
 
-    pub fn aabb(&self, texts: &[ExtractedText]) -> Aabb2d {
-        let text = &texts[self.id as usize];
+    pub fn aabb(&self, canvas: &ExtractedCanvas) -> Aabb2d {
+        let text = &canvas.texts[self.id as usize];
         let mut aabb = Aabb2d {
             min: self.rect.min,
             max: self.rect.max,
@@ -293,15 +290,6 @@ impl TextPrimitive {
             );
         }
         aabb
-    }
-
-    pub fn glyph_aabb(&self, index: usize, texts: &[ExtractedText]) -> Aabb2d {
-        let text = &texts[self.id as usize];
-        let glyph = &text.glyphs[index];
-        Aabb2d {
-            min: self.rect.min + glyph.offset,
-            max: self.rect.min + glyph.offset + glyph.size,
-        }
     }
 
     fn info(&self, texts: &[ExtractedText]) -> PrimitiveInfo {
@@ -674,7 +662,7 @@ impl Tiles {
 
 /// Ensure any active [`Camera`] component with a [`Canvas`] component also has
 /// associated [`TileConfig`] and [`Tiles`] components.
-pub fn add_tiles(
+pub fn spawn_missing_tiles_components(
     mut commands: Commands,
     cameras: Query<(Entity, Option<&TileConfig>, &Camera), (With<Canvas>, Without<Tiles>)>,
 ) {

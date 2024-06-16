@@ -29,22 +29,30 @@ pub use render_context::RenderContext;
 pub use shapes::*;
 pub use text::{CanvasTextId, KeithTextPipeline};
 
+/// Main Keith plugin.
 #[derive(Default)]
 pub struct KeithPlugin;
 
+/// Reference to the primitive shader `prim.wgsl`, embedded in the code.
 pub(crate) const PRIMITIVE_SHADER_HANDLE: Handle<Shader> =
     Handle::weak_from_u128(1713353953151292643);
 
+/// System sets for Keith.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub enum KeithSystem {
     /// Label for [`text::process_glyphs()`].
     ProcessTextGlyphs,
-    /// Add [`Tiles`] and [`TileConfig`] component where missing.
-    AddTiles,
+
+    /// Spawn any [`Tiles`] or [`TileConfig`] component where missing.
+    ///
+    /// This executes as part of the [`PostUpdate`] schedule.
+    SpawnMissingTilesComponents,
+
     /// Resize the [`Tiles`] component of a [`Canvas`] to accomodate the size of
     /// the render target of a [`Camera`].
     // FIXME - Currently a canvas always targets the full camera screen size.
     ResizeTilesToCameraRenderTarget,
+
     /// Label for [`render::extract_primitives()`].
     ExtractPrimitives,
 }
@@ -64,7 +72,7 @@ impl Plugin for KeithPlugin {
             .configure_sets(
                 PostUpdate,
                 (
-                    KeithSystem::AddTiles,
+                    KeithSystem::SpawnMissingTilesComponents,
                     KeithSystem::ResizeTilesToCameraRenderTarget,
                 )
                     .chain()
@@ -75,7 +83,8 @@ impl Plugin for KeithPlugin {
             .add_systems(
                 PostUpdate,
                 (
-                    canvas::add_tiles.in_set(KeithSystem::AddTiles),
+                    canvas::spawn_missing_tiles_components
+                        .in_set(KeithSystem::SpawnMissingTilesComponents),
                     canvas::resize_tiles_to_camera_render_target
                         .in_set(KeithSystem::ResizeTilesToCameraRenderTarget)
                         .after(bevy::transform::TransformSystem::TransformPropagate)
