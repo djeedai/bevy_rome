@@ -162,22 +162,22 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
 
     // ctx.clear(None, Color::FUCHSIA);
 
-    // let brush = ctx.solid_brush(Color::BISQUE);
-    // let rect = Rect {
-    //     min: Vec2::new(-10., -30.),
-    //     max: Vec2::new(30., 130.),
-    // };
-    // ctx.fill(rect, &brush);
+    let brush = ctx.solid_brush(Color::BISQUE);
+    let rect = Rect {
+        min: Vec2::new(-10., -30.),
+        max: Vec2::new(30., 130.),
+    };
+    ctx.fill(rect, &brush);
 
-    // let brush = ctx.solid_brush(Color::PINK);
-    // let rounded_rect = RoundedRect {
-    //     rect: Rect {
-    //         min: Vec2::ZERO,
-    //         max: Vec2::splat(50.),
-    //     },
-    //     radius: 8.,
-    // };
-    // ctx.fill(rounded_rect, &brush);
+    let brush = ctx.solid_brush(Color::PINK);
+    let rounded_rect = RoundedRect {
+        rect: Rect {
+            min: Vec2::ZERO,
+            max: Vec2::splat(50.),
+        },
+        radius: 8.,
+    };
+    ctx.fill(rounded_rect, &brush);
 
     let text = ctx
         .new_layout("Hello World!")
@@ -189,29 +189,29 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     //ctx.draw_text(text, Vec2::new(300., -20.0));
     ctx.draw_text(text, Vec2::new(0.0, 0.0));
 
-    // let text = ctx
-    //     .new_layout("SUPER")
-    //     .color(Color::ORANGE_RED)
-    //     .font(my_res.font.clone())
-    //     .font_size(128.)
-    //     .build();
-    // ctx.draw_text(text, Vec2::new(-100., 300.0));
+    let text = ctx
+        .new_layout("SUPER")
+        .color(Color::ORANGE_RED)
+        .font(my_res.font.clone())
+        .font_size(128.)
+        .build();
+    ctx.draw_text(text, Vec2::new(-100., 300.0));
 
-    // let rect = Rect {
-    //     min: Vec2::new(100., 150.),
-    //     max: Vec2::new(164., 214.),
-    // };
-    // ctx.draw_image(rect, my_res.image.clone());
+    let rect = Rect {
+        min: Vec2::new(100., 150.),
+        max: Vec2::new(164., 214.),
+    };
+    ctx.draw_image(rect, my_res.image.clone());
 
-    // let brush = ctx.solid_brush(Color::GREEN);
-    // for i in 0..=10 {
-    //     ctx.line(
-    //         Vec2::new(-200.5, 0.5 + i as f32 * 15.),
-    //         Vec2::new(0.5, 0.5 + i as f32 * 40.),
-    //         &brush,
-    //         1. + i as f32,
-    //     );
-    // }
+    let brush = ctx.solid_brush(Color::GREEN);
+    for i in 0..=10 {
+        ctx.line(
+            Vec2::new(-200.5, 0.5 + i as f32 * 15.),
+            Vec2::new(0.5, 0.5 + i as f32 * 40.),
+            &brush,
+            1. + i as f32,
+        );
+    }
 
     // // Rounded rect with border
     // let rect = Rect::from_center_size(Vec2::new(300., 200.), Vec2::new(80.,
