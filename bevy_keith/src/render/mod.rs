@@ -1,4 +1,4 @@
-use std::fmt::Write as _;
+use std::{fmt::Write as _, num::NonZeroU64};
 
 use bevy::{
     asset::{Asset, AssetEvent, AssetId},
@@ -40,9 +40,7 @@ use bevy::{
 };
 
 use crate::{
-    canvas::{
-        Canvas, OffsetAndCount, Primitive, PrimitiveIndexAndKind, PrimitiveInfo, Tiles,
-    },
+    canvas::{Canvas, OffsetAndCount, Primitive, PrimitiveIndexAndKind, PrimitiveInfo, Tiles},
     text::CanvasTextId,
     PRIMITIVE_SHADER_HANDLE,
 };
@@ -91,29 +89,21 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveBufferBindGr
         _item: &P,
         _view: ROQueryItem<'w, Self::ViewQuery>,
         primitive_batch: Option<ROQueryItem<'w, Self::ItemQuery>>,
-        primitive_meta: SystemParamItem<'w, '_, Self::Param>,
+        _primitive_meta: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let Some(primitive_batch) = primitive_batch else {
             return RenderCommandResult::Failure;
         };
         trace!(
-            "SetPrimitiveBufferBindGroup: I={} canvas_entity={:?}",
+            "SetPrimitiveBufferBindGroup: I={} canvas_entity={:?} bg={:?}",
             I,
-            primitive_batch.canvas_entity
+            primitive_batch.canvas_entity,
+            primitive_batch.bind_group(),
         );
-        if let Some(canvas_meta) = primitive_meta
-            .into_inner()
-            .canvas_meta
-            .get(&primitive_batch.canvas_entity)
-        {
-            pass.set_bind_group(I, &canvas_meta.primitive_bind_group, &[]);
-            trace!("SetPrimitiveBufferBindGroup: SUCCESS");
-            RenderCommandResult::Success
-        } else {
-            error!("SetPrimitiveBufferBindGroup: FAILURE");
-            RenderCommandResult::Failure
-        }
+        pass.set_bind_group(I, primitive_batch.bind_group(), &[]);
+        trace!("SetPrimitiveBufferBindGroup: SUCCESS");
+        RenderCommandResult::Success
     }
 }
 
@@ -207,6 +197,23 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
     }
 }
 
+#[derive(Debug, Clone)]
+enum BatchBuffers {
+    /// Batch buffers not ready.
+    Invalid,
+    /// Batch buffers ready but no bind group.
+    /// Tuple contains offset and size in row count of the data in the buffer.
+    Raw(u32, u32),
+    /// Batch buffers ready and bind group created.
+    Prepared(BindGroup),
+}
+
+impl Default for BatchBuffers {
+    fn default() -> Self {
+        Self::Invalid
+    }
+}
+
 /// Batch of primitives sharing the same [`Canvas`] and rendering
 /// characteristics, and which can be rendered with a single draw call.
 #[derive(Component, Clone)]
@@ -216,6 +223,14 @@ pub struct PrimitiveBatch {
     image_handle_id: AssetId<Image>,
     /// Entity holding the [`Canvas`] component this batch is built from.
     canvas_entity: Entity,
+    /// Bind group for the primitive buffer and tile buffers used by the batch.
+    primitive_bind_group: BatchBuffers,
+}
+
+impl Default for PrimitiveBatch {
+    fn default() -> Self {
+        Self::invalid()
+    }
 }
 
 impl PrimitiveBatch {
@@ -227,11 +242,12 @@ impl PrimitiveBatch {
         PrimitiveBatch {
             image_handle_id: AssetId::<Image>::invalid(),
             canvas_entity: Entity::PLACEHOLDER,
+            primitive_bind_group: BatchBuffers::Invalid,
         }
     }
 
-    pub fn is_valid(&self) -> bool {
-        self.canvas_entity != Entity::PLACEHOLDER
+    pub fn is_empty(&self) -> bool {
+        self.canvas_entity == Entity::PLACEHOLDER
     }
 
     /// Try to merge a batch into the current batch.
@@ -251,6 +267,13 @@ impl PrimitiveBatch {
         }
     }
 
+    pub fn bind_group(&self) -> &BindGroup {
+        match &self.primitive_bind_group {
+            BatchBuffers::Prepared(bind_group) => bind_group,
+            _ => panic!("Missing bind group for batch buffers"),
+        }
+    }
+
     fn is_handle_compatible(&self, handle: AssetId<Image>) -> bool {
         // Any invalid handle means "no texture", which can be batched with any other
         // texture. Only different (valid) textures cannot be batched together.
@@ -264,8 +287,6 @@ impl PrimitiveBatch {
 struct CanvasMeta {
     /// Entity the [`Canvas`] component is attached to.
     canvas_entity: Entity,
-    /// Bind group for the primitive buffer used by the canvas.
-    primitive_bind_group: BindGroup,
 }
 
 #[derive(Resource)]
@@ -592,12 +613,12 @@ impl ExtractedCanvas {
     }
 
     #[inline]
-    pub fn offset_and_count_binding(&self) -> Option<BindingResource> {
+    pub fn offset_and_count_binding(&self, offset: u32, size: u32) -> Option<BindingResource> {
         self.offset_and_count_buffer.as_ref().map(|buffer| {
             BindingResource::Buffer(BufferBinding {
                 buffer: &buffer,
-                offset: 0,
-                size: None,
+                offset: offset as u64 * 8,
+                size: Some(NonZeroU64::new(size as u64 * 8).unwrap()),
             })
         })
     }
@@ -859,7 +880,10 @@ impl<'a> Iterator for SubPrimIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(prim) = self.prim {
-            let PrimitiveInfo { row_count: _, sub_prim_count: _ } = prim.info(self.texts);
+            let PrimitiveInfo {
+                row_count: _,
+                sub_prim_count: _,
+            } = prim.info(self.texts);
             match prim {
                 Primitive::Text(text) => {
                     if text.id as usize >= self.texts.len() {
@@ -892,7 +916,10 @@ impl<'a> Iterator for SubPrimIter<'a> {
                 _ => {
                     self.prim = None;
                     // Currently all other primitives are non-textured
-                    Some((AssetId::<Image>::invalid(), Aabb2d::new(Vec2::ZERO, Vec2::ZERO)))
+                    Some((
+                        AssetId::<Image>::invalid(),
+                        Aabb2d::new(Vec2::ZERO, Vec2::ZERO),
+                    ))
                 }
             }
         } else {
@@ -939,7 +966,7 @@ pub(crate) fn prepare_primitives(
     events: Res<PrimitiveAssetEvents>,
     mut prepared_primitives: Local<Vec<PreparedPrimitive>>,
 ) {
-    trace!("prepare_primitives");
+    trace!("prepare_primitives()");
 
     // If an Image has changed, the GpuImage has (probably) changed
     for event in &events.images {
@@ -975,6 +1002,9 @@ pub(crate) fn prepare_primitives(
         prepared_primitives.clear();
         prepared_primitives.reserve(extracted_canvas.primitives.len());
 
+        let tile_size = extracted_canvas.tiles.tile_size.as_vec2();
+        extracted_canvas.tiles.offset_and_count.clear();
+
         // Serialize primitives into a binary float32 array, to work around the fact
         // wgpu doesn't have byte arrays. And f32 being the most common type of
         // data in primitives limits the amount of bitcast in the shader.
@@ -983,16 +1013,26 @@ pub(crate) fn prepare_primitives(
             extracted_canvas.primitives.len()
         );
         let mut current_batch = PrimitiveBatch::invalid();
+        let mut oc_offset = extracted_canvas.tiles.offset_and_count.len() as u32;
+        let mut pp_offset = 0;
         for prim in &extracted_canvas.primitives {
             let base_index = primitives.len() as u32;
             let is_textured = prim.is_textured();
-            let mut prim_index = PrimitiveIndexAndKind::new(base_index, prim.gpu_kind(), is_textured);
+            let mut prim_index =
+                PrimitiveIndexAndKind::new(base_index, prim.gpu_kind(), is_textured);
 
             trace!("+ Primitive @ base_index={}", base_index);
 
             // Serialize the primitive
-            let PrimitiveInfo { row_count, sub_prim_count } = prim.info(&extracted_canvas.texts[..]);
-            trace!("  row_count={} sub_prim_count={}", row_count, sub_prim_count);
+            let PrimitiveInfo {
+                row_count,
+                sub_prim_count,
+            } = prim.info(&extracted_canvas.texts[..]);
+            trace!(
+                "  row_count={} sub_prim_count={}",
+                row_count,
+                sub_prim_count
+            );
             if row_count > 0 && sub_prim_count > 0 {
                 let row_count = row_count as usize;
                 let sub_prim_count = sub_prim_count as usize;
@@ -1030,17 +1070,10 @@ pub(crate) fn prepare_primitives(
             trace!("Batch sub-primitives...");
             let batch_iter = SubPrimIter::new(prim, &extracted_canvas.texts);
             for (image_handle_id, mut aabb) in batch_iter {
-                // Calculate once and save the AABB of the primitive, for tile assignment
-                // purpose. Since there are many more tiles than primitives, it's worth doing
-                // that calculation only once ahead of time before looping over tiles.
-                aabb.min += extracted_canvas.canvas_origin;
-                aabb.max += extracted_canvas.canvas_origin;
-                prepared_primitives.push(PreparedPrimitive { aabb, prim_index });
-                prim_index.0 += row_count;
-
                 let new_batch = PrimitiveBatch {
                     image_handle_id,
                     canvas_entity: *entity,
+                    ..default()
                 };
                 trace!(
                     "New Batch: canvas_entity={:?} image={:?}",
@@ -1053,6 +1086,16 @@ pub(crate) fn prepare_primitives(
                         "Merged new batch with current batch: image={:?}",
                         current_batch.image_handle_id
                     );
+
+                    // Calculate once and save the AABB of the primitive, for tile assignment
+                    // purpose. Since there are many more tiles than primitives, it's worth doing
+                    // that calculation only once ahead of time before looping over tiles.
+                    aabb.min += extracted_canvas.canvas_origin;
+                    aabb.max += extracted_canvas.canvas_origin;
+                    trace!("PreparedPrimitive {aabb:?} {prim_index:?}");
+                    prepared_primitives.push(PreparedPrimitive { aabb, prim_index });
+                    prim_index.0 += row_count;
+
                     continue;
                 }
 
@@ -1060,62 +1103,126 @@ pub(crate) fn prepare_primitives(
 
                 // Skip if batch is empty, which may happen on first one (current_batch
                 // initialized to an invalid empty batch)
-                if current_batch.is_valid() {
+                if !current_batch.is_empty() {
+                    // Assign primitives to tiles
+                    let mut tile_count = 0;
+                    for ty in 0..extracted_canvas.tiles.dimensions.y {
+                        for tx in 0..extracted_canvas.tiles.dimensions.x {
+                            let min = Vec2::new(tx as f32, ty as f32) * tile_size;
+                            let max = min + tile_size;
+                            let tile_aabb = Aabb2d { min, max };
+
+                            let offset = extracted_canvas.tiles.primitives.len() as u32; // - current_batch.dynamic_offsets[1];
+
+                            // Loop on all primitives to gather the ones affecting the current tile. We
+                            // expect a lot more tiles than primitives for a standard 1080p or 4K screen
+                            // resolution.
+                            let mut count = 0;
+                            for prim in &prepared_primitives[pp_offset as usize..] {
+                                if prim.aabb.intersects(&tile_aabb) {
+                                    let prim_aabb = prim.aabb;
+                                    trace!("Prim #{count} offset={offset} aabb={prim_aabb:?} overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
+                                    extracted_canvas.tiles.primitives.push(prim.prim_index);
+                                    count += 1;
+                                }
+                            }
+
+                            if count > 0 {
+                                trace!(
+                                    "Append to o&c buffer len={} entry offset={} count={}",
+                                    extracted_canvas.tiles.offset_and_count.len(),
+                                    offset,
+                                    count
+                                );
+                                tile_count += 1;
+                            }
+                            extracted_canvas
+                                .tiles
+                                .offset_and_count
+                                .push(OffsetAndCount { offset, count });
+                        }
+                    }
+                    trace!("{} primitives overlap {} tiles", prepared_primitives.len() as u32 - pp_offset, tile_count);
+
+                    let oc_count = extracted_canvas.tiles.offset_and_count.len() as u32 - oc_offset;
+                    current_batch.primitive_bind_group = BatchBuffers::Raw(oc_offset, oc_count);
+
+                    trace!("Spawned new batch: oc_offset={oc_offset} oc_count={oc_count} pp_offset={pp_offset}");
+
                     commands.spawn(current_batch);
+
+                    oc_offset += oc_count;
+                    pp_offset = prepared_primitives.len() as u32;
                 }
 
                 current_batch = new_batch;
+
+                // Calculate once and save the AABB of the primitive, for tile assignment
+                // purpose. Since there are many more tiles than primitives, it's worth doing
+                // that calculation only once ahead of time before looping over tiles.
+                aabb.min += extracted_canvas.canvas_origin;
+                aabb.max += extracted_canvas.canvas_origin;
+                trace!("PreparedPrimitive {aabb:?} {prim_index:?}");
+                prepared_primitives.push(PreparedPrimitive { aabb, prim_index });
+                prim_index.0 += row_count;
             }
         }
 
         // Output the last batch
-        if current_batch.is_valid() {
-            trace!("Output last batch...");
+        if !current_batch.is_empty() {
+            trace!("Output last batch... pp_offset={pp_offset}");
+
+            // Assign primitives to tiles
+            let mut tile_count = 0;
+            for ty in 0..extracted_canvas.tiles.dimensions.y {
+                for tx in 0..extracted_canvas.tiles.dimensions.x {
+                    let min = Vec2::new(tx as f32, ty as f32) * tile_size;
+                    let max = min + tile_size;
+                    let tile_aabb = Aabb2d { min, max };
+
+                    let offset = extracted_canvas.tiles.primitives.len() as u32; // - current_batch.dynamic_offsets[1];
+
+                    // Loop on all primitives to gather the ones affecting the current tile. We
+                    // expect a lot more tiles than primitives for a standard 1080p or 4K screen
+                    // resolution.
+                    let mut count = 0;
+                    for prim in &prepared_primitives[pp_offset as usize..] {
+                        if prim.aabb.intersects(&tile_aabb) {
+                            let prim_aabb = prim.aabb;
+                            trace!("Prim #{count} offset={offset} aabb={prim_aabb:?} overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
+                            extracted_canvas.tiles.primitives.push(prim.prim_index);
+                            count += 1;
+                        }
+                    }
+
+                    if count > 0 {
+                        trace!(
+                            "Append to o&c buffer len={} entry offset={} count={}",
+                            extracted_canvas.tiles.offset_and_count.len(),
+                            offset,
+                            count
+                        );
+                        tile_count += 1;
+                    }
+                    extracted_canvas
+                        .tiles
+                        .offset_and_count
+                        .push(OffsetAndCount { offset, count });
+                }
+            }
+            trace!("{} primitives overlap {} tiles", prepared_primitives.len() as u32 - pp_offset, tile_count);
+
+            let oc_count = extracted_canvas.tiles.offset_and_count.len() as u32 - oc_offset;
+            current_batch.primitive_bind_group = BatchBuffers::Raw(oc_offset, oc_count);
+
+            trace!("Spawned new batch: oc_offset={oc_offset} oc_count={oc_count} pp_offset={pp_offset}");
+
             commands.spawn(current_batch);
         }
 
         if primitives.is_empty() {
             trace!("No primitive to render, finished preparing.");
             return;
-        }
-
-        // Assign primitives to tiles
-        let tile_size = extracted_canvas.tiles.tile_size.as_vec2();
-        extracted_canvas.tiles.offset_and_count.clear();
-        for ty in 0..extracted_canvas.tiles.dimensions.y {
-            for tx in 0..extracted_canvas.tiles.dimensions.x {
-                let min = Vec2::new(tx as f32, ty as f32) * tile_size;
-                let max = min + tile_size;
-                let tile_aabb = Aabb2d { min, max };
-
-                let offset = extracted_canvas.tiles.primitives.len() as u32;
-
-                // Loop on all primitives to gather the ones affecting the current tile. We
-                // expect a lot more tiles than primitives for a standard 1080p or 4K screen
-                // resolution.
-                let mut count = 0;
-                for prim in &prepared_primitives {
-                    if prim.aabb.intersects(&tile_aabb) {
-                        let prim_aabb = prim.aabb;
-                        trace!("Prim #{count} offset={offset} aabb={prim_aabb:?} overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
-                        extracted_canvas.tiles.primitives.push(prim.prim_index);
-                        count += 1;
-                    }
-                }
-
-                if count > 0 {
-                    trace!(
-                        "Append to o&c buffer len={} entry offset={} count={}",
-                        extracted_canvas.tiles.offset_and_count.len(),
-                        offset,
-                        count
-                    );
-                }
-                extracted_canvas
-                    .tiles
-                    .offset_and_count
-                    .push(OffsetAndCount { offset, count });
-            }
         }
 
         // Write to GPU buffers
@@ -1155,7 +1262,7 @@ pub fn queue_primitives(
             batch_entity,
             batch.image_handle_id
         );
-        if !batch.is_valid() {
+        if batch.is_empty() {
             // shouldn't happen
             continue;
         }
@@ -1208,7 +1315,7 @@ pub fn prepare_bind_groups(
     render_device: Res<RenderDevice>,
     view_uniforms: Res<ViewUniforms>,
     primitive_pipeline: Res<PrimitivePipeline>,
-    batches: Query<(Entity, &PrimitiveBatch)>,
+    mut batches: Query<(Entity, &mut PrimitiveBatch)>,
     extracted_canvases: Res<ExtractedCanvases>,
     gpu_images: Res<RenderAssets<Image>>,
     fallback_images: Res<FallbackImage>,
@@ -1252,14 +1359,14 @@ pub fn prepare_bind_groups(
         }],
     ));
 
-    trace!("Looping on batches...");
-    for (batch_entity, batch) in batches.iter() {
+    trace!("Looping on {} batches...", batches.iter().len());
+    for (batch_entity, mut batch) in batches.iter_mut() {
         trace!(
             "batch ent={:?} image={:?}",
             batch_entity,
             batch.image_handle_id
         );
-        if !batch.is_valid() {
+        if batch.is_empty() {
             // shouldn't happen
             continue;
         }
@@ -1270,14 +1377,28 @@ pub fn prepare_bind_groups(
             if let Some(extracted_canvas) = extracted_canvases.canvases.get(&canvas_entity) {
                 extracted_canvas
             } else {
+                warn!(
+                    "Unknown extracted canvas entity {:?}. Skipped.",
+                    canvas_entity
+                );
                 continue;
             };
+
+        // The bind group should be reset each frame to BatchBuffers::Raw(), so anything else is wrong
+        let BatchBuffers::Raw(oc_offset, oc_size) = batch.primitive_bind_group else {
+            warn!(
+                "Batch buffers not ready: {:?}. Skipped.",
+                batch.primitive_bind_group
+            );
+            continue;
+        };
 
         let (Some(prim), Some(tile_prim), Some(oc)) = (
             extracted_canvas.binding(),
             extracted_canvas.tile_primitives_binding(),
-            extracted_canvas.offset_and_count_binding(),
+            extracted_canvas.offset_and_count_binding(oc_offset, oc_size),
         ) else {
+            warn!("Binding resource not ready. Skipped.");
             continue;
         };
 
@@ -1299,23 +1420,17 @@ pub fn prepare_bind_groups(
                 },
             ],
         );
+        debug!("Created bind group {primitive_bind_group:?} for batch on entity {batch_entity:?} with oc_offset={oc_offset} oc_size={oc_size}...");
+        batch.primitive_bind_group = BatchBuffers::Prepared(primitive_bind_group);
 
         // Update meta map
         primitive_meta
             .canvas_meta
             .entry(canvas_entity)
-            .and_modify(|canvas_meta| {
-                // Overwrite bind groups; any old one might reference a deallocated buffer
-                canvas_meta.primitive_bind_group = primitive_bind_group.clone();
-            })
             .or_insert_with(|| {
                 trace!("Adding new CanvasMeta: canvas_entity={:?}", canvas_entity);
-                CanvasMeta {
-                    canvas_entity,
-                    primitive_bind_group,
-                }
+                CanvasMeta { canvas_entity }
             });
-
         trace!(
             "CanvasMeta: canvas_entity={:?} batch_entity={:?}",
             canvas_entity,
