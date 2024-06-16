@@ -99,7 +99,12 @@ impl Primitive {
         }
     }
 
-    pub(crate) fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], scale_factor: f32) {
+    pub(crate) fn write(
+        &self,
+        texts: &[ExtractedText],
+        prim: &mut [MaybeUninit<f32>],
+        scale_factor: f32,
+    ) {
         match &self {
             Primitive::Line(l) => l.write(prim, scale_factor),
             Primitive::Rect(r) => r.write(prim, scale_factor),
@@ -156,7 +161,10 @@ impl LinePrimitive {
     }
 
     fn info(&self) -> PrimitiveInfo {
-        PrimitiveInfo { row_count: 6, sub_prim_count: 1 }
+        PrimitiveInfo {
+            row_count: 6,
+            sub_prim_count: 1,
+        }
     }
 
     fn write(&self, prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
@@ -222,7 +230,8 @@ impl RectPrimitive {
 
     fn info(&self) -> PrimitiveInfo {
         PrimitiveInfo {
-            row_count: self.row_count(), sub_prim_count: 1,
+            row_count: self.row_count(),
+            sub_prim_count: 1,
         }
     }
 
@@ -300,10 +309,14 @@ impl TextPrimitive {
         if index < texts.len() {
             let glyph_count = texts[index].glyphs.len() as u32;
             PrimitiveInfo {
-                row_count: Self::ROW_PER_GLYPH, sub_prim_count: glyph_count,
+                row_count: Self::ROW_PER_GLYPH,
+                sub_prim_count: glyph_count,
             }
         } else {
-            PrimitiveInfo { row_count: 0, sub_prim_count: 0 }
+            PrimitiveInfo {
+                row_count: 0,
+                sub_prim_count: 0,
+            }
         }
     }
 
@@ -423,7 +436,8 @@ impl QuarterPiePrimitive {
 
     fn info(&self) -> PrimitiveInfo {
         PrimitiveInfo {
-            row_count: self.row_count(), sub_prim_count: 1,
+            row_count: self.row_count(),
+            sub_prim_count: 1,
         }
     }
 

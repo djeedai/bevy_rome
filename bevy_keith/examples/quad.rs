@@ -249,8 +249,9 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     );
 
     let s = "The quick brown fox jumps over the lazy dog THE QUICK BROWN FOX
-    JUMPS OVER THE LAZY DOG !£$%^&*()_}{][#';~@:"; for (i, st) in
-    s.as_bytes().chunks(10).enumerate() {     let rect = Rect {
+    JUMPS OVER THE LAZY DOG !£$%^&*()_}{][#';~@:";
+    for (i, st) in s.as_bytes().chunks(10).enumerate() {
+        let rect = Rect {
             min: Vec2::new(-400., -180. + i as f32 * 35.),
             max: Vec2::new(-280., -150. + i as f32 * 35.),
         };

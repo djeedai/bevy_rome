@@ -286,7 +286,8 @@ impl KeithTextPipeline {
                     // Bounds are the pixel-rounded position where we should draw the texture, relative to the origin
                     // of the entire section. glyph.position contains the origin of the glyph itself. To reuse the glyphs,
                     // we store relative bounds, and ignore the sub-pixel delta between multiple glyph instances.
-                    let mut bounds = Rect::new(bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y);
+                    let mut bounds =
+                        Rect::new(bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y);
                     bounds.min.x -= position.x;
                     bounds.min.y -= position.y;
                     bounds.max.x -= position.x;
@@ -312,7 +313,10 @@ impl KeithTextPipeline {
             let size = atlas_glyph.px_size;
 
             // Restore glyph position from glyph origin relative to section origin + glyph offset from its own origin
-            let mut position = Vec2::new(position.x + atlas_glyph.bounds.min.x, position.y + atlas_glyph.bounds.min.y);
+            let mut position = Vec2::new(
+                position.x + atlas_glyph.bounds.min.x,
+                position.y + atlas_glyph.bounds.min.y,
+            );
 
             // ab_glyph always inserts a 1-pixel padding around glyphs it rasterizes, so the actual texture is larger
             position -= 1.0;
