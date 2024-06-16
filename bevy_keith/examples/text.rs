@@ -120,15 +120,10 @@ fn draw_anchored_text(
         &brush,
     );
 
-    // Anchor
-    let brush = ctx.solid_brush(Color::RED);
-    ctx.line(pos - Vec2::X * 3., pos + Vec2::X * 3., &brush, 1.);
-    ctx.line(pos - Vec2::Y * 3., pos + Vec2::Y * 3., &brush, 1.);
-
     // Text
     let text = ctx
         .new_layout(text.to_owned())
-        .color(Color::rgb(0.2, 0.2, 0.2))
+        .color(Color::rgb(0.1, 0.1, 0.1))
         .font(font)
         .font_size(16.)
         .bounds(size)
@@ -136,6 +131,11 @@ fn draw_anchored_text(
         .alignment(JustifyText::Left)
         .build();
     ctx.draw_text(text, pos);
+
+    // Anchor
+    let brush = ctx.solid_brush(Color::RED);
+    ctx.line(pos - Vec2::X * 3., pos + Vec2::X * 3., &brush, 1.);
+    ctx.line(pos - Vec2::Y * 3., pos + Vec2::Y * 3., &brush, 1.);
 }
 
 fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<PrimaryWindow>>) {

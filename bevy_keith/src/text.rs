@@ -61,6 +61,10 @@ struct AtlasGlyph {
     /// Index of the glyph into the [`TextureAtlasLayout`].
     pub glyph_index: usize,
 
+    /// Typographic bounds relative to the glyph origin ("pen position").
+    /// `bounds.min` represents the offset from the lower left corner of the glyph texture stored in the atlas to the glyph origin.
+    pub bounds: Rect,
+
     /// Size of the glyph texture, in pixels.
     pub px_size: Vec2,
 }
@@ -212,7 +216,8 @@ impl KeithTextPipeline {
             .calculate_glyphs(&self.fonts, &geom, &sections);
 
         // Copied from Bevy...
-        let logical_size = Self::calc_logical_size(&section_glyphs, |index| scaled_fonts[index]).size();
+        let logical_size =
+            Self::calc_logical_size(&section_glyphs, |index| scaled_fonts[index]).size();
 
         // Raster all glyphs and insert them into the atlas
         let mut text_layout_info = TextLayoutInfo {
@@ -259,7 +264,7 @@ impl KeithTextPipeline {
 
                 // Glyph not present in atlas, adding it now
                 if let Some(outlined_glyph) = self.fonts[section.font_id.0].outline_glyph(glyph) {
-                    // Get the rectangle bounds of this glyph
+                    // Get the rectangle bounds of this glyph. This is the rectangle centered at the "pen position", from which all typographic quantities like h-advance and ascent/descent are calculated. Generally bounds.min is small but non-zero (especially if there's a descent).
                     let bounds = outlined_glyph.px_bounds();
 
                     // Raster the glyph into an Image
@@ -278,8 +283,21 @@ impl KeithTextPipeline {
 
                     let tex_rect = atlas_layout.textures[glyph_index];
 
+                    // Bounds are the pixel-rounded position where we should draw the texture, relative to the origin
+                    // of the entire section. glyph.position contains the origin of the glyph itself. To reuse the glyphs,
+                    // we store relative bounds, and ignore the sub-pixel delta between multiple glyph instances.
+                    let mut bounds = Rect::new(bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y);
+                    bounds.min.x -= position.x;
+                    bounds.min.y -= position.y;
+                    bounds.max.x -= position.x;
+                    bounds.max.y -= position.y;
+
                     let px_size = tex_rect.size();
-                    let atlas_glyph = AtlasGlyph { glyph_index, px_size };
+                    let atlas_glyph = AtlasGlyph {
+                        glyph_index,
+                        bounds,
+                        px_size,
+                    };
 
                     self.glyphs.insert(scaled_glyph, atlas_glyph);
                     debug!("  -> Inserted new glyph #{glyph_id:?} at index {glyph_index} into atlas. bounds={bounds:?} (px_size:{px_size:?})");
@@ -291,10 +309,13 @@ impl KeithTextPipeline {
                 }
             };
 
-            // Vertical position of glyphs is given at the lower (left) corner, whereas the position in Bevy space
-            // is from the top (left) corner, with Y down. Calculate the correct position.
             let size = atlas_glyph.px_size;
-            let position = Vec2::new(position.x, position.y - size.y);
+
+            // Restore glyph position from glyph origin relative to section origin + glyph offset from its own origin
+            let mut position = Vec2::new(position.x + atlas_glyph.bounds.min.x, position.y + atlas_glyph.bounds.min.y);
+
+            // ab_glyph always inserts a 1-pixel padding around glyphs it rasterizes, so the actual texture is larger
+            position -= 1.0;
 
             text_layout_info.glyphs.push(PositionedGlyph {
                 position,
@@ -327,7 +348,7 @@ impl KeithTextPipeline {
 
     // Copied from Bevy...
     /// Calculate the logical size of a text section.
-    /// 
+    ///
     /// Note that the size includes some small padding corresponding to the bearings around the glyph.
     /// This is because the resulting size is aimed at anchoring the text, and therefore needs to account
     /// for the full typographical size of the glyph, which is visually more pleasing than the tight pixel
