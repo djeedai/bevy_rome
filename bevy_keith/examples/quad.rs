@@ -7,9 +7,6 @@ use bevy_keith::*;
 
 fn main() {
     App::new()
-        // MSAA is useless for SDF rendering in the absence of alpha-to-coverage, which is disabled
-        // in the 2D pipeline of Bevy
-        .insert_resource(Msaa::Off)
         // Helper to exit with ESC key
         .add_systems(Update, bevy::window::close_on_esc)
         // Default plugins
@@ -17,7 +14,7 @@ fn main() {
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
-                    filter: "quad=trace,bevy_keith=trace,bevy=info".to_string(),
+                    filter: "quad=trace,bevy_keith=warn,bevy=info".to_string(),
                     update_subscriber: None,
                 })
                 .set(WindowPlugin {
@@ -181,21 +178,13 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
 
     let text = ctx
         .new_layout("Hello World!")
-        .color(Color::ORANGE_RED)
+        .color(Color::TEAL)
         .font(my_res.font.clone())
         .font_size(32.)
         .anchor(Anchor::BottomLeft)
         .build();
     //ctx.draw_text(text, Vec2::new(300., -20.0));
     ctx.draw_text(text, Vec2::new(0.0, 0.0));
-
-    let text = ctx
-        .new_layout("SUPER")
-        .color(Color::ORANGE_RED)
-        .font(my_res.font.clone())
-        .font_size(128.)
-        .build();
-    ctx.draw_text(text, Vec2::new(-100., 300.0));
 
     let rect = Rect {
         min: Vec2::new(100., 150.),
@@ -213,6 +202,14 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
         );
     }
 
+    let text = ctx
+        .new_layout("bevy_keith")
+        .color(Color::PINK)
+        .font(my_res.font.clone())
+        .font_size(128.)
+        .build();
+    ctx.draw_text(text, Vec2::new(-100., 300.0));
+
     // // Rounded rect with border
     // let rect = Rect::from_center_size(Vec2::new(300., 200.), Vec2::new(80.,
     // 40.)); let brush = ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7));
@@ -228,41 +225,41 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     // };
     // ctx.stroke(rrect, &brush, 1.);
 
-    // // Buttons
-    // let rect = Rect {
-    //     min: Vec2::new(-200., -100.),
-    //     max: Vec2::new(-80., -70.),
-    // };
-    // draw_button(&mut ctx, rect, "Submit", my_res.font.clone(), cursor_pos);
-    // let rect = Rect {
-    //     min: Vec2::new(-200., -140.),
-    //     max: Vec2::new(-80., -110.),
-    // };
-    // draw_button(&mut ctx, rect, "Cancel", my_res.font.clone(), cursor_pos);
-    // let rect = Rect {
-    //     min: Vec2::new(-200., -180.),
-    //     max: Vec2::new(-80., -150.),
-    // };
-    // draw_button(
-    //     &mut ctx,
-    //     rect,
-    //     "This is a very long text that will not fit in the button",
-    //     my_res.font.clone(),
-    //     cursor_pos,
-    // );
+    // Buttons
+    let rect = Rect {
+        min: Vec2::new(-200., -100.),
+        max: Vec2::new(-80., -70.),
+    };
+    draw_button(&mut ctx, rect, "Submit", my_res.font.clone(), cursor_pos);
+    let rect = Rect {
+        min: Vec2::new(-200., -140.),
+        max: Vec2::new(-80., -110.),
+    };
+    draw_button(&mut ctx, rect, "Cancel", my_res.font.clone(), cursor_pos);
+    let rect = Rect {
+        min: Vec2::new(-200., -180.),
+        max: Vec2::new(-80., -150.),
+    };
+    draw_button(
+        &mut ctx,
+        rect,
+        "This is a very long text that will not fit in the button",
+        my_res.font.clone(),
+        cursor_pos,
+    );
 
-    // let s = "The quick brown fox jumps over the lazy dog THE QUICK BROWN FOX
-    // JUMPS OVER THE LAZY DOG !£$%^&*()_}{][#';~@:"; for (i, st) in
-    // s.as_bytes().chunks(10).enumerate() {     let rect = Rect {
-    //         min: Vec2::new(-400., -180. + i as f32 * 35.),
-    //         max: Vec2::new(-280., -150. + i as f32 * 35.),
-    //     };
-    //     draw_button(
-    //         &mut ctx,
-    //         rect,
-    //         &format!("Button #{} {}", i, String::from_utf8_lossy(st)),
-    //         my_res.font.clone(),
-    //         cursor_pos,
-    //     );
-    // }
+    let s = "The quick brown fox jumps over the lazy dog THE QUICK BROWN FOX
+    JUMPS OVER THE LAZY DOG !£$%^&*()_}{][#';~@:"; for (i, st) in
+    s.as_bytes().chunks(10).enumerate() {     let rect = Rect {
+            min: Vec2::new(-400., -180. + i as f32 * 35.),
+            max: Vec2::new(-280., -150. + i as f32 * 35.),
+        };
+        draw_button(
+            &mut ctx,
+            rect,
+            &format!("Button #{} {}", i, String::from_utf8_lossy(st)),
+            my_res.font.clone(),
+            cursor_pos,
+        );
+    }
 }

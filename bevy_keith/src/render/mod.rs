@@ -475,7 +475,7 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
             multisample: MultisampleState {
                 count: key.msaa_samples(),
                 mask: !0,
-                alpha_to_coverage_enabled: false,
+                alpha_to_coverage_enabled: true,
             },
             label: Some("keith:primitive_pipeline".into()),
             push_constant_ranges: vec![],
