@@ -353,11 +353,13 @@ impl TextPrimitive {
             // let uv_h = -uv_h;
 
             // center pos
-            // we round() here to work around a bug: if the pixel rect is not aligned on the screen pixel grid,
-            // the UV coordinates may end up being < 0.5 or > w + 0.5, which then bleeds into adjacent pixels.
-            // it looks like the rasterizing of the glyphs already adds 1 pixel border, so we should remove that
-            // border in the SDF rect, so that we never sample the texture beyond half that 1 px border, which
-            // would linearly blend with the next pixel (outside the glyph rect).
+            // we round() here to work around a bug: if the pixel rect is not aligned on the
+            // screen pixel grid, the UV coordinates may end up being < 0.5 or >
+            // w + 0.5, which then bleeds into adjacent pixels. it looks like
+            // the rasterizing of the glyphs already adds 1 pixel border, so we should
+            // remove that border in the SDF rect, so that we never sample the
+            // texture beyond half that 1 px border, which would linearly blend
+            // with the next pixel (outside the glyph rect).
             prim[ip + 0].write((self.rect.min.x + x).round() + hw);
             prim[ip + 1].write((self.rect.min.y + y).round() + hh);
 

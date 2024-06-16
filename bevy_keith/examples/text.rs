@@ -5,7 +5,6 @@ use bevy::{
     window::PrimaryWindow,
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-
 use bevy_keith::*;
 
 fn main() {

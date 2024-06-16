@@ -2,7 +2,6 @@
 
 use bevy::{log::LogPlugin, math::Rect, prelude::*, sprite::Anchor, window::PrimaryWindow};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-
 use bevy_keith::*;
 
 fn main() {

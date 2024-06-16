@@ -274,7 +274,8 @@ impl PrimitiveBatch {
 
     /// Get the bind group for the primitive buffers associated with this batch.
     ///
-    /// Returns `Some` if the bind group was successfully prepared (created), or `None` otherwise.
+    /// Returns `Some` if the bind group was successfully prepared (created), or
+    /// `None` otherwise.
     pub fn bind_group(&self) -> Option<&BindGroup> {
         match &self.primitive_bind_group {
             BatchBuffers::Prepared(bind_group) => Some(bind_group),
@@ -284,8 +285,9 @@ impl PrimitiveBatch {
 
     /// Check if the given image handle is compatible with the current batch.
     ///
-    /// The handle is compatible if either the batch's own handle or the provided handle is invalid (non-textured),
-    /// or they are both valid and equal.
+    /// The handle is compatible if either the batch's own handle or the
+    /// provided handle is invalid (non-textured), or they are both valid
+    /// and equal.
     fn is_handle_compatible(&self, handle: AssetId<Image>) -> bool {
         // Any invalid handle means "no texture", which can be batched with any other
         // texture. Only different (valid) textures cannot be batched together.
@@ -786,12 +788,14 @@ pub(crate) fn extract_primitives(
                 continue;
             };
 
-            // FIXME - Don't use logical_size to then convert back to physical_size, just store physical_size to begin with...
+            // FIXME - Don't use logical_size to then convert back to physical_size, just
+            // store physical_size to begin with...
             let width = text_layout_info.logical_size.x * inv_scale_factor;
             let height = text_layout_info.logical_size.y * inv_scale_factor;
 
             // Offset the text based on its anchor (default Anchor::Center is (0,0)).
-            // Note that anchor, and therefore alignment_translation, is calculated from bottom left corner, Y up.
+            // Note that anchor, and therefore alignment_translation, is calculated from
+            // bottom left corner, Y up.
             let text_anchor = -(text.anchor.as_vec() + 0.5);
             let alignment_translation = text_layout_info.logical_size * text_anchor;
 
@@ -1123,8 +1127,9 @@ pub(crate) fn prepare_primitives(
 
                             let offset = extracted_canvas.tiles.primitives.len() as u32; // - current_batch.dynamic_offsets[1];
 
-                            // Loop on all primitives to gather the ones affecting the current tile. We
-                            // expect a lot more tiles than primitives for a standard 1080p or 4K screen
+                            // Loop on all primitives to gather the ones affecting the current tile.
+                            // We expect a lot more tiles than
+                            // primitives for a standard 1080p or 4K screen
                             // resolution.
                             let mut count = 0;
                             for prim in &prepared_primitives[pp_offset as usize..] {
@@ -1401,7 +1406,8 @@ pub fn prepare_bind_groups(
                 continue;
             };
 
-        // The bind group should be reset each frame to BatchBuffers::Raw(), so anything else is wrong
+        // The bind group should be reset each frame to BatchBuffers::Raw(), so anything
+        // else is wrong
         let BatchBuffers::Raw(oc_offset, oc_size) = batch.primitive_bind_group else {
             warn!(
                 "Batch buffers not ready: {:?}. Skipped.",

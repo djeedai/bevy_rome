@@ -1,5 +1,7 @@
 #![allow(unused_variables, dead_code, unused_imports)]
 
+use std::{ops::RangeBounds, str, sync::Arc};
+
 use bevy::math::Affine2;
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
@@ -10,7 +12,6 @@ use bevy::{
     text::Font,
     utils::{default, HashMap},
 };
-use std::{ops::RangeBounds, str, sync::Arc};
 
 use crate::canvas::{
     Canvas, LinePrimitive, Primitive, QuarterPiePrimitive, RectPrimitive, TextPrimitive,
