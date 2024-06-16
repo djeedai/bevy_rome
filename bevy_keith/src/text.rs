@@ -62,7 +62,8 @@ struct AtlasGlyph {
     pub glyph_index: usize,
 
     /// Typographic bounds relative to the glyph origin ("pen position").
-    /// `bounds.min` represents the offset from the lower left corner of the glyph texture stored in the atlas to the glyph origin.
+    /// `bounds.min` represents the offset from the lower left corner of the
+    /// glyph texture stored in the atlas to the glyph origin.
     pub bounds: Rect,
 
     /// Size of the glyph texture, in pixels.
@@ -264,7 +265,10 @@ impl KeithTextPipeline {
 
                 // Glyph not present in atlas, adding it now
                 if let Some(outlined_glyph) = self.fonts[section.font_id.0].outline_glyph(glyph) {
-                    // Get the rectangle bounds of this glyph. This is the rectangle centered at the "pen position", from which all typographic quantities like h-advance and ascent/descent are calculated. Generally bounds.min is small but non-zero (especially if there's a descent).
+                    // Get the rectangle bounds of this glyph. This is the rectangle centered at the
+                    // "pen position", from which all typographic quantities like h-advance and
+                    // ascent/descent are calculated. Generally bounds.min is small but non-zero
+                    // (especially if there's a descent).
                     let bounds = outlined_glyph.px_bounds();
 
                     // Raster the glyph into an Image
@@ -283,9 +287,11 @@ impl KeithTextPipeline {
 
                     let tex_rect = atlas_layout.textures[glyph_index];
 
-                    // Bounds are the pixel-rounded position where we should draw the texture, relative to the origin
-                    // of the entire section. glyph.position contains the origin of the glyph itself. To reuse the glyphs,
-                    // we store relative bounds, and ignore the sub-pixel delta between multiple glyph instances.
+                    // Bounds are the pixel-rounded position where we should draw the texture,
+                    // relative to the origin of the entire section.
+                    // glyph.position contains the origin of the glyph itself. To reuse the glyphs,
+                    // we store relative bounds, and ignore the sub-pixel delta between multiple
+                    // glyph instances.
                     let mut bounds =
                         Rect::new(bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y);
                     bounds.min.x -= position.x;
@@ -305,20 +311,23 @@ impl KeithTextPipeline {
 
                     atlas_glyph
                 } else {
-                    // This generally happens for e.g. the blank space character, which has no glyph.
+                    // This generally happens for e.g. the blank space character, which has no
+                    // glyph.
                     continue;
                 }
             };
 
             let size = atlas_glyph.px_size;
 
-            // Restore glyph position from glyph origin relative to section origin + glyph offset from its own origin
+            // Restore glyph position from glyph origin relative to section origin + glyph
+            // offset from its own origin
             let mut position = Vec2::new(
                 position.x + atlas_glyph.bounds.min.x,
                 position.y + atlas_glyph.bounds.min.y,
             );
 
-            // ab_glyph always inserts a 1-pixel padding around glyphs it rasterizes, so the actual texture is larger
+            // ab_glyph always inserts a 1-pixel padding around glyphs it rasterizes, so the
+            // actual texture is larger
             position -= 1.0;
 
             text_layout_info.glyphs.push(PositionedGlyph {
@@ -353,10 +362,11 @@ impl KeithTextPipeline {
     // Copied from Bevy...
     /// Calculate the logical size of a text section.
     ///
-    /// Note that the size includes some small padding corresponding to the bearings around the glyph.
-    /// This is because the resulting size is aimed at anchoring the text, and therefore needs to account
-    /// for the full typographical size of the glyph, which is visually more pleasing than the tight pixel
-    /// bounds of the rasterized glyph.
+    /// Note that the size includes some small padding corresponding to the
+    /// bearings around the glyph. This is because the resulting size is
+    /// aimed at anchoring the text, and therefore needs to account
+    /// for the full typographical size of the glyph, which is visually more
+    /// pleasing than the tight pixel bounds of the rasterized glyph.
     fn calc_logical_size<T>(
         section_glyphs: &[glyph_brush_layout::SectionGlyph],
         get_scaled_font: impl Fn(usize) -> ab_glyph::PxScaleFont<T>,
@@ -373,7 +383,8 @@ impl KeithTextPipeline {
             let scaled_font = get_scaled_font(sg.section_index);
             let glyph = &sg.glyph;
             text_bounds = text_bounds.union(Rect {
-                // FIXME - This 0.0 is slightly incorrect, only works because in general position.y == ascent
+                // FIXME - This 0.0 is slightly incorrect, only works because in general position.y
+                // == ascent
                 min: Vec2::new(glyph.position.x, 0.),
                 max: Vec2::new(
                     glyph.position.x + scaled_font.h_advance(glyph.id),
@@ -463,38 +474,6 @@ pub fn process_glyphs(
                 }
                 Err(text_error) => error!("Failed to calculate layout for text: {:?}", text_error),
             }
-
-            // match text_pipeline.queue_text(
-            //     &fonts,
-            //     &text.sections,
-            //     scale_factor as f32,
-            //     text.alignment,
-            //     BreakLineOn::WordBoundary, // TODO - configurable
-            //     text.bounds * scale_factor as f32,
-            //     &mut font_atlas_set_storage,
-            //     &mut texture_atlases,
-            //     &mut images,
-            //     text_settings.as_ref(),
-            //     YAxisOrientation::BottomToTop, // TODO - configurable
-            // ) {
-            //     Err(TextError::NoSuchFont) => {
-            //         // There was an error looking for the text font, add the canvas entity to the
-            //         // queue for later re-try (next frame)
-            //         font_queue.insert(entity);
-
-            //         text.layout_info = None;
-            //     }
-            //     Err(e @ TextError::FailedToAddGlyph(_)) => {
-            //         panic!("Fatal error when processing text: {}.", e);
-            //     }
-            //     Ok(text_layout_info) => {
-            //         text.calculated_size = Vec2::new(
-            //             scale_value(text_layout_info.logical_size.x, inv_scale_factor),
-            //             scale_value(text_layout_info.logical_size.y, inv_scale_factor),
-            //         );
-            //         text.layout_info = Some(text_layout_info);
-            //     }
-            // }
         }
     }
 }

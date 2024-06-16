@@ -11,25 +11,23 @@ pub mod prelude {
     pub use crate::render_context::RenderContext;
 }
 
-use bevy::prelude::*;
-use bevy::render::{Render, RenderSet};
-use render::{
-    DrawPrimitive, ExtractedCanvases, ImageBindGroups, PrimitiveAssetEvents, PrimitiveMeta,
-    PrimitivePipeline,
-};
-
-pub use canvas::{Canvas, Primitive};
-pub use render_context::RenderContext;
-pub use shapes::*;
-pub use text::{CanvasTextId, KeithTextPipeline};
-
 use bevy::asset::load_internal_asset;
 use bevy::core_pipeline::core_2d::Transparent2d;
+use bevy::prelude::*;
 use bevy::render::{
     render_phase::AddRenderCommand,
     render_resource::{Shader, SpecializedRenderPipelines},
     RenderApp,
 };
+use bevy::render::{Render, RenderSet};
+pub use canvas::{Canvas, Primitive};
+use render::{
+    DrawPrimitive, ExtractedCanvases, ImageBindGroups, PrimitiveAssetEvents, PrimitiveMeta,
+    PrimitivePipeline,
+};
+pub use render_context::RenderContext;
+pub use shapes::*;
+pub use text::{CanvasTextId, KeithTextPipeline};
 
 #[derive(Default)]
 pub struct KeithPlugin;
