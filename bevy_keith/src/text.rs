@@ -286,8 +286,7 @@ impl KeithTextPipeline {
 
                     atlas_glyph
                 } else {
-                    // Looking at outline_glyph() impl, this is never reached...
-                    error!("Failed to outline glyph #{glyph_id:?} with font #{font_id:?}");
+                    // This generally happens for e.g. the blank space character, which has no glyph.
                     continue;
                 }
             };
