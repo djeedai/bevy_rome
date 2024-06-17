@@ -1021,7 +1021,6 @@ pub(crate) fn prepare_primitives(
         prepared_primitives.clear();
         prepared_primitives.reserve(extracted_canvas.primitives.len());
 
-        let tile_size = extracted_canvas.tiles.tile_size.as_vec2();
         extracted_canvas.tiles.offset_and_count.clear();
 
         let inv_scale_factor = 1.0 / extracted_canvas.scale_factor;
@@ -1130,14 +1129,14 @@ pub(crate) fn prepare_primitives(
                 // initialized to an invalid empty batch)
                 if !current_batch.is_empty() {
                     // Assign primitives to tiles
-                    let tile_count = extracted_canvas
+                    extracted_canvas
                         .tiles
-                        .assign_to_tiles(&prepared_primitives[pp_offset as usize..], tile_size);
-                    trace!(
-                        "{} primitives overlap {} tiles",
-                        prepared_primitives.len() as u32 - pp_offset,
-                        tile_count
-                    );
+                        .assign_to_tiles(&prepared_primitives[pp_offset as usize..]);
+                    // trace!(
+                    //     "{} primitives overlap {} tiles",
+                    //     prepared_primitives.len() as u32 - pp_offset,
+                    //     tile_count
+                    // );
 
                     let oc_count = extracted_canvas.tiles.offset_and_count.len() as u32 - oc_offset;
                     current_batch.primitive_bind_group = BatchBuffers::Raw(oc_offset, oc_count);
@@ -1166,14 +1165,14 @@ pub(crate) fn prepare_primitives(
             trace!("Output last batch... pp_offset={pp_offset}");
 
             // Assign primitives to tiles
-            let tile_count = extracted_canvas
+            extracted_canvas
                 .tiles
-                .assign_to_tiles(&prepared_primitives[pp_offset as usize..], tile_size);
-            trace!(
-                "{} primitives overlap {} tiles",
-                prepared_primitives.len() as u32 - pp_offset,
-                tile_count
-            );
+                .assign_to_tiles(&prepared_primitives[pp_offset as usize..]);
+            // trace!(
+            //     "{} primitives overlap {} tiles",
+            //     prepared_primitives.len() as u32 - pp_offset,
+            //     tile_count
+            // );
 
             let oc_count = extracted_canvas.tiles.offset_and_count.len() as u32 - oc_offset;
             current_batch.primitive_bind_group = BatchBuffers::Raw(oc_offset, oc_count);

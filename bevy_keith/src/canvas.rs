@@ -659,24 +659,64 @@ impl Tiles {
         );
     }
 
-    pub(crate) fn assign_to_tiles(&mut self, prim: &[PreparedPrimitive], tile_size: Vec2) -> u32 {
-        // Assign primitives to tiles
-        self.offset_and_count.reserve(self.dimensions.x as usize * self.dimensions.y as usize);
-        let mut tile_count = 0;
+    /// Assign the given primitives to tiles.
+    pub(crate) fn assign_to_tiles(&mut self, primitives: &[PreparedPrimitive]) {
+        let tile_size = self.tile_size.as_vec2();
+
+        let oc_extra = self.dimensions.x as usize * self.dimensions.y as usize;
+        self.offset_and_count.reserve(oc_extra);
+        let oc = self.offset_and_count.spare_capacity_mut();
+
+        // Some semi-random guesswork of average tile overlapping count per primitive,
+        // so we don't start from a stupidly small allocation.
+        self.primitives.reserve(primitives.len() * 4);
+
+        // let mut count = 0;
+        // for prim in prim {
+        //     let uv_min = (prim.aabb.min / tile_size).floor().as_ivec2();
+        //     let uv_max = (prim.aabb.max / tile_size).ceil().as_ivec2();
+
+        //     // Loop on tiles overlapping this primitive. This is generally only a
+        // handful.     for ty in uv_min.y..=uv_max.y {
+        //         for tx in uv_min.x..=uv_max.x {
+        //         }
+        //     }
+
+        //     // Same as IntersectsVolume<> but ignoring overlapping edges if
+        //     // there's no surface.
+        //     // The primitives are defined by ideal coordinates, but rendered
+        //     // with physical pixels,
+        //     // so an overlap of a mathematical infinitely thin edge is not
+        //     // visible, only physical
+        //     // pixels overlap is meaningful.
+        //     let x_overlaps =
+        //         prim.aabb.min.x < tile_aabb.max.x && prim.aabb.max.x >
+        // tile_aabb.min.x;     let y_overlaps =
+        //         prim.aabb.min.y < tile_aabb.max.y && prim.aabb.max.y >
+        // tile_aabb.min.y;     if x_overlaps && y_overlaps {
+        //         //  let prim_aabb = prim.aabb;
+        //         //  trace!("Prim #{count} offset={offset} aabb={prim_aabb:?} overlaps
+        // tile {tx}x{ty} with aabb {tile_aabb:?}");         self.primitives.
+        // push(prim.prim_index);         count += 1;
+        //     }
+        // }
+
+
+        let mut index = 0;
         for ty in 0..self.dimensions.y {
             for tx in 0..self.dimensions.x {
                 let min = Vec2::new(tx as f32, ty as f32) * tile_size;
                 let max = min + tile_size;
                 let tile_aabb = Aabb2d { min, max };
 
-                let offset = self.primitives.len() as u32; // - current_batch.dynamic_offsets[1];
+                let offset = self.primitives.len() as u32;
 
                 // Loop on all primitives to gather the ones affecting the current tile.
                 // We expect a lot more tiles than
                 // primitives for a standard 1080p or 4K screen
                 // resolution.
                 let mut count = 0;
-                for prim in prim {
+                for prim in primitives {
                     // Same as IntersectsVolume<> but ignoring overlapping edges if
                     // there's no surface.
                     // The primitives are defined by ideal coordinates, but rendered
@@ -684,33 +724,38 @@ impl Tiles {
                     // so an overlap of a mathematical infinitely thin edge is not
                     // visible, only physical
                     // pixels overlap is meaningful.
-                    let x_overlaps =
-                        prim.aabb.min.x < tile_aabb.max.x && prim.aabb.max.x > tile_aabb.min.x;
-                    let y_overlaps =
-                        prim.aabb.min.y < tile_aabb.max.y && prim.aabb.max.y > tile_aabb.min.y;
-                    if x_overlaps && y_overlaps {
+                    if prim.aabb.min.x < tile_aabb.max.x
+                        && prim.aabb.max.x > tile_aabb.min.x
+                        && prim.aabb.min.y < tile_aabb.max.y
+                        && prim.aabb.max.y > tile_aabb.min.y
+                    {
                         //  let prim_aabb = prim.aabb;
-                        //  trace!("Prim #{count} offset={offset} aabb={prim_aabb:?} overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
+                        //  trace!("Prim #{count} offset={offset} aabb={prim_aabb:?} overlaps tile
+                        // {tx}x{ty} with aabb {tile_aabb:?}");
                         self.primitives.push(prim.prim_index);
                         count += 1;
                     }
                 }
 
-                if count > 0 {
-                    //  trace!(
-                    //      "Append to o&c buffer len={} entry offset={} count={}",
-                    //      self.offset_and_count.len(),
-                    //      offset,
-                    //      count
-                    //  );
-                    tile_count += 1;
-                }
-                
-                self.offset_and_count.push(OffsetAndCount { offset, count });
+                // if count > 0 {
+                //     //  trace!(
+                //     //      "Append to o&c buffer len={} entry offset={} count={}",
+                //     //      self.offset_and_count.len(),
+                //     //      offset,
+                //     //      count
+                //     //  );
+                // }
+
+                //self.offset_and_count.push(OffsetAndCount { offset, count });
+                oc[index].write(OffsetAndCount { offset, count });
+                index += 1;
             }
         }
 
-        tile_count
+        unsafe {
+            let old_len = self.offset_and_count.len();
+            self.offset_and_count.set_len(old_len + oc_extra);
+        }
     }
 }
 
