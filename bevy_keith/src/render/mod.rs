@@ -879,14 +879,17 @@ pub(crate) struct SubPrimIter<'a> {
     index: usize,
     /// Text information for iterating over glyphs.
     texts: &'a [ExtractedText],
+    /// Inverse scale factor, to convert from physical to logical coordinates.
+    inv_scale_factor: f32,
 }
 
 impl<'a> SubPrimIter<'a> {
-    pub fn new(prim: &'a Primitive, texts: &'a [ExtractedText]) -> Self {
+    pub fn new(prim: &'a Primitive, texts: &'a [ExtractedText], inv_scale_factor: f32) -> Self {
         Self {
             prim: Some(prim),
             index: 0,
             texts,
+            inv_scale_factor,
         }
     }
 }
@@ -910,8 +913,8 @@ impl<'a> Iterator for SubPrimIter<'a> {
                         let glyph = &extracted_text.glyphs[self.index];
                         let image_handle_id = glyph.handle_id;
                         let aabb = Aabb2d {
-                            min: text.rect.min + glyph.offset,
-                            max: text.rect.min + glyph.offset + glyph.size,
+                            min: (text.rect.min + glyph.offset) * self.inv_scale_factor,
+                            max: (text.rect.min + glyph.offset + glyph.size) * self.inv_scale_factor,
                         };
                         self.index += 1;
                         Some((image_handle_id, aabb))
@@ -1018,6 +1021,8 @@ pub(crate) fn prepare_primitives(
         let tile_size = extracted_canvas.tiles.tile_size.as_vec2();
         extracted_canvas.tiles.offset_and_count.clear();
 
+        let inv_scale_factor = 1.0 / extracted_canvas.scale_factor;
+
         // Serialize primitives into a binary float32 array, to work around the fact
         // wgpu doesn't have byte arrays. And f32 being the most common type of
         // data in primitives limits the amount of bitcast in the shader.
@@ -1081,7 +1086,7 @@ pub(crate) fn prepare_primitives(
             // per glyph, each of which _can_ have a separate atlas texture so potentially
             // can split the draw into a new batch.
             trace!("Batch sub-primitives...");
-            let batch_iter = SubPrimIter::new(prim, &extracted_canvas.texts);
+            let batch_iter = SubPrimIter::new(prim, &extracted_canvas.texts, inv_scale_factor);
             for (image_handle_id, mut aabb) in batch_iter {
                 let new_batch = PrimitiveBatch {
                     image_handle_id,
@@ -1094,6 +1099,12 @@ pub(crate) fn prepare_primitives(
                     new_batch.image_handle_id
                 );
 
+                // Convert from logical to physical coordinates
+                aabb.min *= extracted_canvas.scale_factor;
+                aabb.max *= extracted_canvas.scale_factor;
+                aabb.min += extracted_canvas.canvas_origin;
+                aabb.max += extracted_canvas.canvas_origin;
+
                 if current_batch.try_merge(&new_batch) {
                     trace!(
                         "Merged new batch with current batch: image={:?}",
@@ -1103,8 +1114,6 @@ pub(crate) fn prepare_primitives(
                     // Calculate once and save the AABB of the primitive, for tile assignment
                     // purpose. Since there are many more tiles than primitives, it's worth doing
                     // that calculation only once ahead of time before looping over tiles.
-                    aabb.min += extracted_canvas.canvas_origin;
-                    aabb.max += extracted_canvas.canvas_origin;
                     trace!("PreparedPrimitive {aabb:?} {prim_index:?}");
                     prepared_primitives.push(PreparedPrimitive { aabb, prim_index });
                     prim_index.0 += row_count;
@@ -1133,7 +1142,15 @@ pub(crate) fn prepare_primitives(
                             // resolution.
                             let mut count = 0;
                             for prim in &prepared_primitives[pp_offset as usize..] {
-                                if prim.aabb.intersects(&tile_aabb) {
+                                // Same as IntersectsVolume<> but ignoring overlapping edges if there's no surface.
+                                // The primitives are defined by ideal coordinates, but rendered with physical pixels,
+                                // so an overlap of a mathematical infinitely thin edge is not visible, only physical
+                                // pixels overlap is meaningful.
+                                let x_overlaps = prim.aabb.min.x < tile_aabb.max.x
+                                    && prim.aabb.max.x > tile_aabb.min.x;
+                                let y_overlaps = prim.aabb.min.y < tile_aabb.max.y
+                                    && prim.aabb.max.y > tile_aabb.min.y;
+                                if x_overlaps && y_overlaps {
                                     let prim_aabb = prim.aabb;
                                     trace!("Prim #{count} offset={offset} aabb={prim_aabb:?} overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
                                     extracted_canvas.tiles.primitives.push(prim.prim_index);
@@ -1178,8 +1195,6 @@ pub(crate) fn prepare_primitives(
                 // Calculate once and save the AABB of the primitive, for tile assignment
                 // purpose. Since there are many more tiles than primitives, it's worth doing
                 // that calculation only once ahead of time before looping over tiles.
-                aabb.min += extracted_canvas.canvas_origin;
-                aabb.max += extracted_canvas.canvas_origin;
                 trace!("PreparedPrimitive {aabb:?} {prim_index:?}");
                 prepared_primitives.push(PreparedPrimitive { aabb, prim_index });
                 prim_index.0 += row_count;
@@ -1205,7 +1220,15 @@ pub(crate) fn prepare_primitives(
                     // resolution.
                     let mut count = 0;
                     for prim in &prepared_primitives[pp_offset as usize..] {
-                        if prim.aabb.intersects(&tile_aabb) {
+                        // Same as IntersectsVolume<> but ignoring overlapping edges if there's no surface.
+                        // The primitives are defined by ideal coordinates, but rendered with physical pixels,
+                        // so an overlap of a mathematical infinitely thin edge is not visible, only physical
+                        // pixels overlap is meaningful.
+                        let x_overlaps = prim.aabb.min.x < tile_aabb.max.x
+                            && prim.aabb.max.x > tile_aabb.min.x;
+                        let y_overlaps = prim.aabb.min.y < tile_aabb.max.y
+                            && prim.aabb.max.y > tile_aabb.min.y;
+                        if x_overlaps && y_overlaps {
                             let prim_aabb = prim.aabb;
                             trace!("Prim #{count} offset={offset} aabb={prim_aabb:?} overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
                             extracted_canvas.tiles.primitives.push(prim.prim_index);
