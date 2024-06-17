@@ -13,7 +13,7 @@ use bevy::{
         },
         world::{FromWorld, World},
     },
-    math::bounding::{Aabb2d, IntersectsVolume},
+    math::bounding::Aabb2d,
     prelude::*,
     render::{
         render_asset::RenderAssets,
@@ -40,7 +40,7 @@ use bevy::{
 };
 
 use crate::{
-    canvas::{Canvas, OffsetAndCount, Primitive, PrimitiveIndexAndKind, PrimitiveInfo, Tiles},
+    canvas::{Canvas, Primitive, PrimitiveIndexAndKind, PrimitiveInfo, Tiles},
     text::CanvasTextId,
     PRIMITIVE_SHADER_HANDLE,
 };
@@ -912,9 +912,12 @@ impl<'a> Iterator for SubPrimIter<'a> {
                     if self.index < extracted_text.glyphs.len() {
                         let glyph = &extracted_text.glyphs[self.index];
                         let image_handle_id = glyph.handle_id;
+                        // The AABB returned is in logical coordinates, but the text internally is
+                        // always in physical coordinates.
                         let aabb = Aabb2d {
                             min: (text.rect.min + glyph.offset) * self.inv_scale_factor,
-                            max: (text.rect.min + glyph.offset + glyph.size) * self.inv_scale_factor,
+                            max: (text.rect.min + glyph.offset + glyph.size)
+                                * self.inv_scale_factor,
                         };
                         self.index += 1;
                         Some((image_handle_id, aabb))
@@ -1127,52 +1130,9 @@ pub(crate) fn prepare_primitives(
                 // initialized to an invalid empty batch)
                 if !current_batch.is_empty() {
                     // Assign primitives to tiles
-                    let mut tile_count = 0;
-                    for ty in 0..extracted_canvas.tiles.dimensions.y {
-                        for tx in 0..extracted_canvas.tiles.dimensions.x {
-                            let min = Vec2::new(tx as f32, ty as f32) * tile_size;
-                            let max = min + tile_size;
-                            let tile_aabb = Aabb2d { min, max };
-
-                            let offset = extracted_canvas.tiles.primitives.len() as u32; // - current_batch.dynamic_offsets[1];
-
-                            // Loop on all primitives to gather the ones affecting the current tile.
-                            // We expect a lot more tiles than
-                            // primitives for a standard 1080p or 4K screen
-                            // resolution.
-                            let mut count = 0;
-                            for prim in &prepared_primitives[pp_offset as usize..] {
-                                // Same as IntersectsVolume<> but ignoring overlapping edges if there's no surface.
-                                // The primitives are defined by ideal coordinates, but rendered with physical pixels,
-                                // so an overlap of a mathematical infinitely thin edge is not visible, only physical
-                                // pixels overlap is meaningful.
-                                let x_overlaps = prim.aabb.min.x < tile_aabb.max.x
-                                    && prim.aabb.max.x > tile_aabb.min.x;
-                                let y_overlaps = prim.aabb.min.y < tile_aabb.max.y
-                                    && prim.aabb.max.y > tile_aabb.min.y;
-                                if x_overlaps && y_overlaps {
-                                    let prim_aabb = prim.aabb;
-                                    trace!("Prim #{count} offset={offset} aabb={prim_aabb:?} overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
-                                    extracted_canvas.tiles.primitives.push(prim.prim_index);
-                                    count += 1;
-                                }
-                            }
-
-                            if count > 0 {
-                                trace!(
-                                    "Append to o&c buffer len={} entry offset={} count={}",
-                                    extracted_canvas.tiles.offset_and_count.len(),
-                                    offset,
-                                    count
-                                );
-                                tile_count += 1;
-                            }
-                            extracted_canvas
-                                .tiles
-                                .offset_and_count
-                                .push(OffsetAndCount { offset, count });
-                        }
-                    }
+                    let tile_count = extracted_canvas
+                        .tiles
+                        .assign_to_tiles(&prepared_primitives[pp_offset as usize..], tile_size);
                     trace!(
                         "{} primitives overlap {} tiles",
                         prepared_primitives.len() as u32 - pp_offset,
@@ -1206,51 +1166,9 @@ pub(crate) fn prepare_primitives(
             trace!("Output last batch... pp_offset={pp_offset}");
 
             // Assign primitives to tiles
-            let mut tile_count = 0;
-            for ty in 0..extracted_canvas.tiles.dimensions.y {
-                for tx in 0..extracted_canvas.tiles.dimensions.x {
-                    let min = Vec2::new(tx as f32, ty as f32) * tile_size;
-                    let max = min + tile_size;
-                    let tile_aabb = Aabb2d { min, max };
-
-                    let offset = extracted_canvas.tiles.primitives.len() as u32; // - current_batch.dynamic_offsets[1];
-
-                    // Loop on all primitives to gather the ones affecting the current tile. We
-                    // expect a lot more tiles than primitives for a standard 1080p or 4K screen
-                    // resolution.
-                    let mut count = 0;
-                    for prim in &prepared_primitives[pp_offset as usize..] {
-                        // Same as IntersectsVolume<> but ignoring overlapping edges if there's no surface.
-                        // The primitives are defined by ideal coordinates, but rendered with physical pixels,
-                        // so an overlap of a mathematical infinitely thin edge is not visible, only physical
-                        // pixels overlap is meaningful.
-                        let x_overlaps = prim.aabb.min.x < tile_aabb.max.x
-                            && prim.aabb.max.x > tile_aabb.min.x;
-                        let y_overlaps = prim.aabb.min.y < tile_aabb.max.y
-                            && prim.aabb.max.y > tile_aabb.min.y;
-                        if x_overlaps && y_overlaps {
-                            let prim_aabb = prim.aabb;
-                            trace!("Prim #{count} offset={offset} aabb={prim_aabb:?} overlaps tile {tx}x{ty} with aabb {tile_aabb:?}");
-                            extracted_canvas.tiles.primitives.push(prim.prim_index);
-                            count += 1;
-                        }
-                    }
-
-                    if count > 0 {
-                        trace!(
-                            "Append to o&c buffer len={} entry offset={} count={}",
-                            extracted_canvas.tiles.offset_and_count.len(),
-                            offset,
-                            count
-                        );
-                        tile_count += 1;
-                    }
-                    extracted_canvas
-                        .tiles
-                        .offset_and_count
-                        .push(OffsetAndCount { offset, count });
-                }
-            }
+            let tile_count = extracted_canvas
+                .tiles
+                .assign_to_tiles(&prepared_primitives[pp_offset as usize..], tile_size);
             trace!(
                 "{} primitives overlap {} tiles",
                 prepared_primitives.len() as u32 - pp_offset,
