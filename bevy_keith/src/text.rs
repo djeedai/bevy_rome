@@ -170,10 +170,9 @@ impl KeithTextPipeline {
         images: &mut Assets<Image>,
         texture_atlas_layouts: &mut Assets<TextureAtlasLayout>,
         text_layout: &mut TextLayout,
+        scale_factor: f32,
     ) -> Result<TextLayoutInfo, TextError> {
         trace!("calc_layout()");
-
-        let scale_factor = 1.; // TODO
 
         let atlas_layout = texture_atlas_layouts
             .get_mut(&self.atlas_layout_handle)
@@ -191,7 +190,7 @@ impl KeithTextPipeline {
                     .ok_or(TextError::NoSuchFont)?;
 
                 let font_id = self.get_or_insert_font_id(&section.style.font, font);
-                let font_size = scale_value(section.style.font_size, scale_factor);
+                let font_size = section.style.font_size * scale_factor;
 
                 scaled_fonts.push(ab_glyph::Font::as_scaled(&font.font, font_size));
 
@@ -464,6 +463,7 @@ pub fn process_glyphs(
                 &mut images,
                 &mut texture_atlas_layouts,
                 text_layout,
+                scale_factor as f32,
             ) {
                 Ok(text_layout_info) => {
                     text_layout.calculated_size = Vec2::new(

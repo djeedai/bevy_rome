@@ -246,15 +246,21 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         switch index_and_kind.kind {
             case PRIM_RECT {
                 let new_color = sdf_rect(index_and_kind.index, canvas_pos, index_and_kind.textured);
+                let new_alpha = mix(color.a, 1.0, new_color.a);
                 color = mix(color, new_color, new_color.a);
+                color.a = new_alpha;
             }
             case PRIM_GLYPH {
                 let new_color = sdf_glyph(index_and_kind.index, canvas_pos);
+                let new_alpha = mix(color.a, 1.0, new_color.a);
                 color = mix(color, new_color, new_color.a);
+                color.a = new_alpha;
             }
             case PRIM_LINE {
                 let new_color = sdf_line(index_and_kind.index, canvas_pos);
+                let new_alpha = mix(color.a, 1.0, new_color.a);
                 color = mix(color, new_color, new_color.a);
+                color.a = new_alpha;
             }
             default {}
         }

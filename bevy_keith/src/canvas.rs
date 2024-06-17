@@ -164,14 +164,14 @@ impl LinePrimitive {
         }
     }
 
-    fn write(&self, prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
+    fn write(&self, prim: &mut [MaybeUninit<f32>], scale_factor: f32) {
         assert_eq!(6, prim.len());
-        prim[0].write(self.start.x);
-        prim[1].write(self.start.y);
-        prim[2].write(self.end.x);
-        prim[3].write(self.end.y);
+        prim[0].write(self.start.x * scale_factor);
+        prim[1].write(self.start.y * scale_factor);
+        prim[2].write(self.end.x * scale_factor);
+        prim[3].write(self.end.y * scale_factor);
         prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
-        prim[5].write(self.thickness);
+        prim[5].write(self.thickness * scale_factor);
     }
 }
 
@@ -190,8 +190,7 @@ pub struct RectPrimitive {
     /// Flip the image (if any) along the vertical axis.
     pub flip_y: bool,
     /// Optional handle to the image used for texturing the rectangle.
-    /// This uses `HandleId` to retain the `Copy` trait.
-    pub image: Option<AssetId<Image>>, // Handle<Image>
+    pub image: Option<AssetId<Image>>,
 }
 
 impl RectPrimitive {
@@ -213,7 +212,7 @@ impl RectPrimitive {
 
     pub fn center(&self) -> Vec3 {
         let c = (self.rect.min + self.rect.max) * 0.5;
-        Vec3::new(c.x, c.y, 0.)
+        c.extend(0.)
     }
 
     #[inline]
@@ -232,7 +231,7 @@ impl RectPrimitive {
         }
     }
 
-    fn write(&self, prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
+    fn write(&self, prim: &mut [MaybeUninit<f32>], scale_factor: f32) {
         assert_eq!(
             self.row_count() as usize,
             prim.len(),
@@ -240,15 +239,16 @@ impl RectPrimitive {
             prim.len(),
             self.row_count()
         );
-        let half_min = self.rect.min * 0.5;
-        let half_max = self.rect.max * 0.5;
+
+        let half_min = self.rect.min * (0.5 * scale_factor);
+        let half_max = self.rect.max * (0.5 * scale_factor);
         let center = half_min + half_max;
         let half_size = half_max - half_min;
         prim[0].write(center.x);
         prim[1].write(center.y);
         prim[2].write(half_size.x);
         prim[3].write(half_size.y);
-        prim[4].write(self.radius);
+        prim[4].write(self.radius * scale_factor);
         prim[5].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
         if self.image.is_some() {
             prim[6].write(0.5);

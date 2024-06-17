@@ -150,11 +150,12 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
         window
             .cursor_position()
             // FIXME - cheap window-to-canvas hard-coded conversion
-            .map(|v| Vec2::new(v.x - 1280. / 2., 720. / 2. - v.y))
+            .map(|v| Vec2::new(v.x - 1280. / 2., v.y - 720. / 2.))
     } else {
         None
     }
     .unwrap_or(Vec2::NAN);
+    //trace!("cursor_pos={cursor_pos}");
 
     // ctx.clear(None, Color::FUCHSIA);
 
@@ -169,9 +170,9 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     let rounded_rect = RoundedRect {
         rect: Rect {
             min: Vec2::ZERO,
-            max: Vec2::splat(50.),
+            max: Vec2::splat(32.),
         },
-        radius: 8.,
+        radius: 4.,
     };
     ctx.fill(rounded_rect, &brush);
 
@@ -207,7 +208,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
         .font(my_res.font.clone())
         .font_size(128.)
         .build();
-    ctx.draw_text(text, Vec2::new(-100., 300.0));
+    ctx.draw_text(text, Vec2::new(-600., 500.0));
 
     // // Rounded rect with border
     // let rect = Rect::from_center_size(Vec2::new(300., 200.), Vec2::new(80.,
