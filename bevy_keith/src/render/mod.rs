@@ -1182,7 +1182,8 @@ pub(crate) fn prepare_primitives(
             commands.spawn(current_batch);
         }
 
-        if primitives.is_empty() {
+        // Check the actual primitives after being assigned to tiles. There might be primitives, but not visible on screen.
+        if extracted_canvas.tiles.primitives.is_empty() {
             trace!("No primitive to render, finished preparing.");
             return;
         }
@@ -1345,6 +1346,12 @@ pub fn prepare_bind_groups(
                 );
                 continue;
             };
+
+        // There's no primitive overlapping any tile; skip any prepare.
+        // FIXME - This should be more driven by batches; we shouldn't spawn empty batches...
+        if extracted_canvas.tiles.primitives.is_empty() {
+            continue;
+        }
 
         // The bind group should be reset each frame to BatchBuffers::Raw(), so anything
         // else is wrong
