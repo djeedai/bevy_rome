@@ -308,7 +308,7 @@ impl TextPrimitive {
         }
     }
 
-    fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
+    fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], scale_factor: f32) {
         let index = self.id as usize;
         let glyphs = &texts[index].glyphs;
         let glyph_count = glyphs.len();
@@ -316,8 +316,8 @@ impl TextPrimitive {
         let mut ip = 0;
         //let inv_scale_factor = 1. / scale_factor;
         for i in 0..glyph_count {
-            let x = glyphs[i].offset.x;
-            let y = glyphs[i].offset.y;
+            let x = glyphs[i].offset.x + self.rect.min.x * scale_factor;
+            let y = glyphs[i].offset.y + self.rect.min.y * scale_factor;
             let hw = glyphs[i].size.x / 2.0;
             let hh = glyphs[i].size.y / 2.0;
 
@@ -348,8 +348,8 @@ impl TextPrimitive {
             // remove that border in the SDF rect, so that we never sample the
             // texture beyond half that 1 px border, which would linearly blend
             // with the next pixel (outside the glyph rect).
-            prim[ip + 0].write((self.rect.min.x + x).round() + hw);
-            prim[ip + 1].write((self.rect.min.y + y).round() + hh);
+            prim[ip + 0].write(x.round() + hw);
+            prim[ip + 1].write(y.round() + hh);
 
             // half size
             prim[ip + 2].write(hw);

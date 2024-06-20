@@ -172,7 +172,7 @@ impl KeithTextPipeline {
         text_layout: &mut TextLayout,
         scale_factor: f32,
     ) -> Result<TextLayoutInfo, TextError> {
-        trace!("calc_layout()");
+        trace!("calc_layout() text_layout_id={}", text_layout.id);
 
         let atlas_layout = texture_atlas_layouts
             .get_mut(&self.atlas_layout_handle)
@@ -190,6 +190,9 @@ impl KeithTextPipeline {
                     .ok_or(TextError::NoSuchFont)?;
 
                 let font_id = self.get_or_insert_font_id(&section.style.font, font);
+
+                // The font size is always in physical pixels, because we render text at
+                // physical scale for optimal quality.
                 let font_size = section.style.font_size * scale_factor;
 
                 scaled_fonts.push(ab_glyph::Font::as_scaled(&font.font, font_size));
@@ -206,22 +209,46 @@ impl KeithTextPipeline {
 
         // Layout all glyphs with glyph_brush_layout
         let geom = glyph_brush_layout::SectionGeometry {
-            bounds: (text_layout.bounds.x, text_layout.bounds.y),
+            // Since the font is in pixels, the bounds also needs to be in physical pixels
+            bounds: (
+                text_layout.bounds.x * scale_factor,
+                text_layout.bounds.y * scale_factor,
+            ),
             ..Default::default()
         };
         let line_breaker: glyph_brush_layout::BuiltInLineBreaker = BreakLineOn::NoWrap.into();
         let section_glyphs = glyph_brush_layout::Layout::default()
-            .h_align(text_layout.alignment.into())
+            .h_align(text_layout.justify.into())
             .line_breaker(line_breaker) // TODO - could make custom
             .calculate_glyphs(&self.fonts, &geom, &sections);
 
-        // Copied from Bevy...
-        let logical_size =
-            Self::calc_logical_size(&section_glyphs, |index| scaled_fonts[index]).size();
+        // Calculate the size of the entire section of glyphs. This is the typographical
+        // size, which can be used to align the text section relative to other
+        // primitives.
+        let typographic_size_px =
+            Self::calc_typographic_size(&section_glyphs, |index| scaled_fonts[index]).size();
+
+        // Calculate the glyph section origin (pen position) the glyphs are positioned
+        // relative to the anchor point.
+        // Offset the text based on its anchor (default Anchor::Center is (0,0)).
+        // Note that anchor, and therefore alignment_translation_px, is calculated from
+        // bottom left corner, Y up.
+        let bounds_size_px = text_layout.bounds * scale_factor;
+        //let text_anchor = -(text_layout.anchor.as_vec() + 0.5);
+        //let alignment_translation_px = typographic_size_px * text_anchor + (text_layout.anchor.as_vec() + 0.5) * bounds_size_px;
+        let alignment_translation_px = (text_layout.anchor.as_vec() + 0.5) * bounds_size_px;
+
+        trace!(
+            "-> typographic_size_px={:?}px anchor={:?} alignment_translation_px={:?} text_layout.bounds={:?}",
+            typographic_size_px,
+            text_layout.anchor,
+            alignment_translation_px,
+            text_layout.bounds
+        );
 
         // Raster all glyphs and insert them into the atlas
         let mut text_layout_info = TextLayoutInfo {
-            logical_size,
+            logical_size: typographic_size_px,
             ..default()
         };
         for section_glyph in section_glyphs {
@@ -243,7 +270,7 @@ impl KeithTextPipeline {
             };
 
             trace!(
-                "Glyph #{:?} pos={:?} scale={:?} font_id={:?} font_size={:?}",
+                "- Glyph #{:?} pos={:?} scale={:?} font_id={:?} font_size={:?}",
                 glyph.id,
                 position,
                 scale,
@@ -317,18 +344,24 @@ impl KeithTextPipeline {
             };
 
             let size = atlas_glyph.px_size;
+            trace!(
+                "size_px={:?} atlas_glyph.bounds={:?}",
+                size,
+                atlas_glyph.bounds
+            );
 
             // Restore glyph position from glyph origin relative to section origin + glyph
             // offset from its own origin
             let mut position = Vec2::new(
-                position.x + atlas_glyph.bounds.min.x,
-                position.y + atlas_glyph.bounds.min.y,
+                position.x + atlas_glyph.bounds.min.x ,//+ alignment_translation_px.x,
+                position.y + atlas_glyph.bounds.min.y ,//+ alignment_translation_px.y,
             );
 
             // ab_glyph always inserts a 1-pixel padding around glyphs it rasterizes, so the
-            // actual texture is larger
+            // actual texture is larger. This is helpful to avoid leaking during blending.
             position -= 1.0;
 
+            trace!("  PositionedGlyph: pos_px={position:?} size_px={size:?}");
             text_layout_info.glyphs.push(PositionedGlyph {
                 position,
                 size,
@@ -359,14 +392,18 @@ impl KeithTextPipeline {
     }
 
     // Copied from Bevy...
-    /// Calculate the logical size of a text section.
+    /// Calculate the typographic size of a text section.
     ///
+    /// The size is expressed in physical pixels, and bounds all the glyphs.
     /// Note that the size includes some small padding corresponding to the
-    /// bearings around the glyph. This is because the resulting size is
+    /// bearings around the glyphs. This is because the resulting size is
     /// aimed at anchoring the text, and therefore needs to account
     /// for the full typographical size of the glyph, which is visually more
     /// pleasing than the tight pixel bounds of the rasterized glyph.
-    fn calc_logical_size<T>(
+    ///
+    /// This size is useful to align the text section in a visually pleasant way
+    /// (as opposed to a pixel-perfect way).
+    fn calc_typographic_size<T>(
         section_glyphs: &[glyph_brush_layout::SectionGlyph],
         get_scaled_font: impl Fn(usize) -> ab_glyph::PxScaleFont<T>,
     ) -> Rect
@@ -382,8 +419,8 @@ impl KeithTextPipeline {
             let scaled_font = get_scaled_font(sg.section_index);
             let glyph = &sg.glyph;
             text_bounds = text_bounds.union(Rect {
-                // FIXME - This 0.0 is slightly incorrect, only works because in general position.y
-                // == ascent
+                // FIXME - This 0.0 is slightly incorrect, only works because often position.y ==
+                // ascent. In general though we should only have position.y >= ascent.
                 min: Vec2::new(glyph.position.x, 0.),
                 max: Vec2::new(
                     glyph.position.x + scaled_font.h_advance(glyph.id),
@@ -454,7 +491,7 @@ pub fn process_glyphs(
                 "Queue text: id={} anchor={:?} alignment={:?} bounds={:?}",
                 text_layout.id,
                 text_layout.anchor,
-                text_layout.alignment,
+                text_layout.justify,
                 text_layout.bounds
             );
 
