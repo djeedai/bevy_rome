@@ -86,10 +86,10 @@ pub struct TextLayout {
     pub(crate) id: u32,
     /// Sections of text.
     pub(crate) sections: Vec<TextSection>,
-    /// Text anchor.
+    /// Text anchor defining the position of the text relative to its bounding rectangle, if any.
     pub(crate) anchor: Anchor,
-    /// Text alignment relative to its origin (render position).
-    pub(crate) alignment: JustifyText,
+    /// Text justifying. This only affects multiline text.
+    pub(crate) justify: JustifyText,
     /// Text bounds, used for glyph clipping.
     pub(crate) bounds: Vec2,
     /// Calculated text size based on glyphs alone, updated by
@@ -106,7 +106,7 @@ impl Default for TextLayout {
             id: 0,
             sections: vec![],
             anchor: Anchor::default(),
-            alignment: JustifyText::Left,
+            justify: JustifyText::Left,
             bounds: Vec2::ZERO,
             calculated_size: Vec2::ZERO,
             layout_info: None,
@@ -192,7 +192,7 @@ impl<'c> TextLayoutBuilder<'c> {
                 value: self.value,
             }],
             anchor: self.anchor,
-            alignment: self.alignment,
+            justify: self.alignment,
             bounds: self.bounds,
             calculated_size: Vec2::ZERO, // updated in process_glyphs()
             layout_info: None,

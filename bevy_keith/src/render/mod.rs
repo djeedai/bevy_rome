@@ -505,7 +505,7 @@ pub struct ExtractedCanvas {
     pub screen_size: UVec2,
     pub canvas_origin: Vec2,
     /// Canvas rectangle relative to its origin.
-    pub rect: Rect,
+    pub canvas_rect: Rect,
     /// Collection of primitives rendered in this canvas.
     pub primitives: Vec<Primitive>,
     storage: Option<Buffer>,
@@ -691,8 +691,9 @@ pub(crate) struct ExtractedText {
 
 #[derive(Debug)]
 pub(crate) struct ExtractedGlyph {
-    /// Offset of the glyph from the text origin.
+    /// Offset of the glyph from the text origin, in physical pixels.
     pub offset: Vec2,
+    /// Size of the glyph, in physical pixels.
     pub size: Vec2,
     /// Glyph color, as RGBA linear (0xAABBGGRR in little endian). Extracted
     /// from the text section's style ([`TextStyle::color`]).
@@ -788,24 +789,24 @@ pub(crate) fn extract_primitives(
                 continue;
             };
 
-            // FIXME - Don't use logical_size to then convert back to physical_size, just
-            // store physical_size to begin with...
-            let width = text_layout_info.logical_size.x * inv_scale_factor;
-            let height = text_layout_info.logical_size.y * inv_scale_factor;
+            let typographic_size_px = text_layout_info.logical_size;
 
             // Offset the text based on its anchor (default Anchor::Center is (0,0)).
-            // Note that anchor, and therefore alignment_translation, is calculated from
+            // Note that anchor, and therefore alignment_translation_px, is calculated from
             // bottom left corner, Y up.
+            // let text_anchor = -(text.anchor.as_vec() + 0.5);
+            // let alignment_translation_px = text_layout_info.logical_size * text_anchor;
+            //let bounds_size_px = text.bounds * scale_factor;
             let text_anchor = -(text.anchor.as_vec() + 0.5);
-            let alignment_translation = text_layout_info.logical_size * text_anchor;
+            let alignment_translation_px = typographic_size_px * text_anchor;
+            //let alignment_translation_px = (text.anchor.as_vec() + 0.5) * bounds_size_px;
 
             trace!(
-                "-> {} glyphs, logical_w={} logical_h={} scale_factor={} logical_alignment_translation={:?}",
+                "-> {} glyphs, typographic_size_px={} scale_factor={} alignment_translation_px={:?}",
                 text_layout_info.glyphs.len(),
-                width,
-                height,
+                typographic_size_px,
                 scale_factor,
-                alignment_translation
+                alignment_translation_px
             );
 
             let mut extracted_glyphs = vec![];
@@ -821,20 +822,20 @@ pub(crate) fn extract_primitives(
                 let index = text_glyph.atlas_info.glyph_index as usize;
                 let uv_rect = atlas_layout.textures[index];
 
-                let glyph_offset = alignment_translation + text_glyph.position;
+                let glyph_offset_px = text_glyph.position;// + alignment_translation_px;
 
                 trace!(
-                    "glyph: position={:?} size={:?} color=0x{:x} glyph_index={:?} uv_rect={:?} glyph_offset={:?}",
+                    "glyph: position_px={:?} size_px={:?} color=0x{:x} glyph_index={:?} uv_rect={:?} glyph_offset_px={:?}",
                     text_glyph.position,
                     text_glyph.size,
                     color,
                     index,
                     uv_rect,
-                    glyph_offset,
+                    glyph_offset_px,
                 );
 
                 extracted_glyphs.push(ExtractedGlyph {
-                    offset: glyph_offset,
+                    offset: glyph_offset_px,
                     size: text_glyph.size,
                     color,
                     handle_id: handle.id(),
@@ -862,7 +863,7 @@ pub(crate) fn extract_primitives(
         extracted_canvas.transform = *transform;
         extracted_canvas.screen_size = screen_size;
         extracted_canvas.canvas_origin = -proj.area.min * scale_factor; // in physical pixels
-        extracted_canvas.rect = canvas.rect();
+        extracted_canvas.canvas_rect = canvas.rect();
         extracted_canvas.primitives = primitives;
         extracted_canvas.scale_factor = scale_factor;
         extracted_canvas.texts = extracted_texts;
@@ -915,9 +916,8 @@ impl<'a> Iterator for SubPrimIter<'a> {
                         // The AABB returned is in logical coordinates, but the text internally is
                         // always in physical coordinates.
                         let aabb = Aabb2d {
-                            min: (text.rect.min + glyph.offset) * self.inv_scale_factor,
-                            max: (text.rect.min + glyph.offset + glyph.size)
-                                * self.inv_scale_factor,
+                            min: text.rect.min + glyph.offset * self.inv_scale_factor,
+                            max: text.rect.min + (glyph.offset + glyph.size) * self.inv_scale_factor,
                         };
                         self.index += 1;
                         Some((image_handle_id, aabb))
@@ -1008,12 +1008,13 @@ pub(crate) fn prepare_primitives(
     // Loop on all extracted canvases to process their primitives
     for (entity, extracted_canvas) in extracted_canvases {
         trace!(
-            "Canvas on Entity {:?} has {} primitives and {} texts, tile size {:?}, canvas_origin={:?}",
+            "Canvas on Entity {:?} has {} primitives and {} texts, tile size {:?}, canvas_origin={:?} canvas_rect={:?}",
             entity,
             extracted_canvas.primitives.len(),
             extracted_canvas.texts.len(),
             extracted_canvas.tiles.tile_size,
             extracted_canvas.canvas_origin,
+            extracted_canvas.canvas_rect,
         );
 
         let mut primitives = vec![];
@@ -1182,7 +1183,8 @@ pub(crate) fn prepare_primitives(
             commands.spawn(current_batch);
         }
 
-        // Check the actual primitives after being assigned to tiles. There might be primitives, but not visible on screen.
+        // Check the actual primitives after being assigned to tiles. There might be
+        // primitives, but not visible on screen.
         if extracted_canvas.tiles.primitives.is_empty() {
             trace!("No primitive to render, finished preparing.");
             return;
@@ -1348,7 +1350,8 @@ pub fn prepare_bind_groups(
             };
 
         // There's no primitive overlapping any tile; skip any prepare.
-        // FIXME - This should be more driven by batches; we shouldn't spawn empty batches...
+        // FIXME - This should be more driven by batches; we shouldn't spawn empty
+        // batches...
         if extracted_canvas.tiles.primitives.is_empty() {
             continue;
         }
