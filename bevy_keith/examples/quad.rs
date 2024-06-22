@@ -1,11 +1,15 @@
 //! Basic quad and text drawing inside a `Canvas`.
 
+use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
+use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::{log::LogPlugin, math::Rect, prelude::*, sprite::Anchor, window::PrimaryWindow};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_keith::*;
 
 fn main() {
     App::new()
+        .add_plugins(FrameTimeDiagnosticsPlugin::default())
+        .add_plugins(LogDiagnosticsPlugin::default())
         // Helper to exit with ESC key
         .add_systems(Update, bevy::window::close_on_esc)
         // Default plugins

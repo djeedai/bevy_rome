@@ -86,7 +86,8 @@ pub struct TextLayout {
     pub(crate) id: u32,
     /// Sections of text.
     pub(crate) sections: Vec<TextSection>,
-    /// Text anchor defining the position of the text relative to its bounding rectangle, if any.
+    /// Text anchor defining the position of the text relative to its bounding
+    /// rectangle, if any.
     pub(crate) anchor: Anchor,
     /// Text justifying. This only affects multiline text.
     pub(crate) justify: JustifyText,
