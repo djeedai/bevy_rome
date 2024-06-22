@@ -193,13 +193,13 @@ impl KeithTextPipeline {
 
                 // The font size is always in physical pixels, because we render text at
                 // physical scale for optimal quality.
-                let font_size = section.style.font_size * scale_factor;
+                let font_size_px = section.style.font_size * scale_factor;
 
-                scaled_fonts.push(ab_glyph::Font::as_scaled(&font.font, font_size));
+                scaled_fonts.push(ab_glyph::Font::as_scaled(&font.font, font_size_px));
 
                 let section = glyph_brush_layout::SectionText {
                     text: &section.value,
-                    scale: ab_glyph::PxScale::from(font_size),
+                    scale: ab_glyph::PxScale::from(font_size_px),
                     font_id,
                 };
 
@@ -207,36 +207,46 @@ impl KeithTextPipeline {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Layout all glyphs with glyph_brush_layout
+        // Layout all glyphs with glyph_brush_layout. This will both justify multi-line
+        // texts, and also align the glyphs relative to some reference point on the
+        // edges of the input bounds. For this reason, we pass the text justify and we
+        // force VerticalAlign::Top, and completely ignore the anchor. This will
+        // position the glyphs vertically relative to the top border, but horizontally
+        // the reference edge (left/center/right) will depend on the justifying.
+        // We will deal separately with actually aligning based on the anchor point.
+        let phys_bounds_px = text_layout.bounds * scale_factor;
         let geom = glyph_brush_layout::SectionGeometry {
             // Since the font is in pixels, the bounds also needs to be in physical pixels
-            bounds: (
-                text_layout.bounds.x * scale_factor,
-                text_layout.bounds.y * scale_factor,
-            ),
+            bounds: (phys_bounds_px.x, phys_bounds_px.y),
             ..Default::default()
         };
         let line_breaker: glyph_brush_layout::BuiltInLineBreaker = BreakLineOn::NoWrap.into();
         let section_glyphs = glyph_brush_layout::Layout::default()
             .h_align(text_layout.justify.into())
+            .v_align(glyph_brush_layout::VerticalAlign::Top)
             .line_breaker(line_breaker) // TODO - could make custom
             .calculate_glyphs(&self.fonts, &geom, &sections);
 
         // Calculate the size of the entire section of glyphs. This is the typographical
         // size, which can be used to align the text section relative to other
-        // primitives.
+        // primitives. This will give us the reference of the top edge of the section,
+        // as well as one of the left/center/right edges, which form the reference point
+        // the glyphs are positioned relative to.
         let typographic_size_px =
             Self::calc_typographic_size(&section_glyphs, |index| scaled_fonts[index]).size();
 
         // Calculate the glyph section origin (pen position) the glyphs are positioned
         // relative to the anchor point.
-        // Offset the text based on its anchor (default Anchor::Center is (0,0)).
-        // Note that anchor, and therefore alignment_translation_px, is calculated from
-        // bottom left corner, Y up.
-        let bounds_size_px = text_layout.bounds * scale_factor;
-        //let text_anchor = -(text_layout.anchor.as_vec() + 0.5);
-        //let alignment_translation_px = typographic_size_px * text_anchor + (text_layout.anchor.as_vec() + 0.5) * bounds_size_px;
-        let alignment_translation_px = (text_layout.anchor.as_vec() + 0.5) * bounds_size_px;
+        let align_x = 
+            (match text_layout.justify {
+                JustifyText::Left => -0.5,
+                JustifyText::Center => 0.,
+                JustifyText::Right => 0.5,
+            } - text_layout.anchor.as_vec().x)
+            * typographic_size_px.x;
+        let align_y =
+            (0.5 - text_layout.anchor.as_vec().y) * (- typographic_size_px.y);
+        let alignment_translation_px = Vec2::new(align_x, align_y);
 
         trace!(
             "-> typographic_size_px={:?}px anchor={:?} alignment_translation_px={:?} text_layout.bounds={:?}",
@@ -351,11 +361,13 @@ impl KeithTextPipeline {
             );
 
             // Restore glyph position from glyph origin relative to section origin + glyph
-            // offset from its own origin
-            let mut position = Vec2::new(
-                position.x + atlas_glyph.bounds.min.x ,//+ alignment_translation_px.x,
-                position.y + atlas_glyph.bounds.min.y ,//+ alignment_translation_px.y,
-            );
+            // offset from its own origin.
+            let mut position = position + atlas_glyph.bounds.min;
+
+            // Fix horizontal align to be relative to the left edge always, instead of the
+            // anchor. This makes later processing a lot easier, without the need to carry
+            // over the anchor.
+            position += alignment_translation_px;
 
             // ab_glyph always inserts a 1-pixel padding around glyphs it rasterizes, so the
             // actual texture is larger. This is helpful to avoid leaking during blending.

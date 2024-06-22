@@ -701,7 +701,6 @@ impl Tiles {
         //     }
         // }
 
-
         let mut index = 0;
         for ty in 0..self.dimensions.y {
             for tx in 0..self.dimensions.x {

@@ -822,7 +822,7 @@ pub(crate) fn extract_primitives(
                 let index = text_glyph.atlas_info.glyph_index as usize;
                 let uv_rect = atlas_layout.textures[index];
 
-                let glyph_offset_px = text_glyph.position;// + alignment_translation_px;
+                let glyph_offset_px = text_glyph.position; // + alignment_translation_px;
 
                 trace!(
                     "glyph: position_px={:?} size_px={:?} color=0x{:x} glyph_index={:?} uv_rect={:?} glyph_offset_px={:?}",
@@ -917,7 +917,8 @@ impl<'a> Iterator for SubPrimIter<'a> {
                         // always in physical coordinates.
                         let aabb = Aabb2d {
                             min: text.rect.min + glyph.offset * self.inv_scale_factor,
-                            max: text.rect.min + (glyph.offset + glyph.size) * self.inv_scale_factor,
+                            max: text.rect.min
+                                + (glyph.offset + glyph.size) * self.inv_scale_factor,
                         };
                         self.index += 1;
                         Some((image_handle_id, aabb))

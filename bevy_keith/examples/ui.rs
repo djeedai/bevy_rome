@@ -18,7 +18,7 @@ fn main() {
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
-                    filter: "ui=trace,bevy_keith=trace,bevy=info".to_string(),
+                    filter: "ui=trace,bevy_keith=warn,bevy=info".to_string(),
                     update_subscriber: None,
                 })
                 .set(WindowPlugin {
@@ -31,7 +31,7 @@ fn main() {
         )
         .insert_resource(ClearColor(Color::PURPLE))
         .add_plugins(KeithPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
+        //.add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Update, run)
         .run();
@@ -133,6 +133,8 @@ fn draw_button(
     text: &str,
     font: Handle<Font>,
     cursor_pos: Vec2,
+    anchor: Anchor,
+    justify: JustifyText,
 ) {
     // Background
     let brush = if rect.contains(cursor_pos) {
@@ -153,10 +155,18 @@ fn draw_button(
         .font(font)
         .font_size(16.)
         .bounds(rect.size())
-        .alignment(JustifyText::Center)
-        .anchor(Anchor::Center)
+        .anchor(anchor)
+        .alignment(justify)
         .build();
-    ctx.draw_text(text, rect.center());
+    let anchor = anchor.as_vec();
+    let anchor = Vec2::new(anchor.x, -anchor.y);
+    let text_pos = anchor * rect.size() + rect.center();
+    ctx.draw_text(text, text_pos);
+
+    // Text origin
+    let brush = ctx.solid_brush(Color::BLUE);
+    ctx.line(text_pos - Vec2::X * 3., text_pos + Vec2::X * 3., &brush, 1.);
+    ctx.line(text_pos - Vec2::Y * 3., text_pos + Vec2::Y * 3., &brush, 1.);
 }
 
 fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<PrimaryWindow>>) {
@@ -188,11 +198,57 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     //     cursor_pos,
     // );
 
-    draw_button(
-        &mut ctx,
-        Rect::new(8., 32., 108., 56.),
-        "Run",
-        my_res.font.clone(),
-        cursor_pos,
-    );
+    let anchors = [
+        [Anchor::TopLeft, Anchor::TopCenter, Anchor::TopRight],
+        [Anchor::CenterLeft, Anchor::Center, Anchor::CenterRight],
+        [
+            Anchor::BottomLeft,
+            Anchor::BottomCenter,
+            Anchor::BottomRight,
+        ],
+    ];
+    let size = Vec2::new(100., 32.);
+    // justify
+    for k in -1i32..=1i32 {
+        // anchor Y
+        for j in -1i32..=1i32 {
+            // anchor X
+            for i in -1i32..=1i32 {
+
+                //TEMP
+                // if k != -1 || i != -1 || j != 0 {
+                //     continue;
+                // }
+
+                let origin = Vec2::new(
+                    i as f32 * 110. + 200. + (k + 1) as f32 * 400.,
+                    j as f32 * 50. + 200.,
+                );
+                let anchor = anchors[(j + 1) as usize][(i + 1) as usize];
+                let justify = match k {
+                    -1 => JustifyText::Left,
+                    0 => JustifyText::Center,
+                    1 => JustifyText::Right,
+                    _ => unimplemented!(),
+                };
+                draw_button(
+                    &mut ctx,
+                    Rect::from_center_size(origin, size),
+                    "Run as fast as you can",
+                    my_res.font.clone(),
+                    cursor_pos,
+                    anchor,
+                    justify,
+                );
+
+                // // Anchor
+                // let brush = ctx.solid_brush(Color::RED);
+                // let pos = anchor.as_vec();
+                // let pos = Vec2::new(pos.x, -pos.y);
+                // let pos = origin + pos * size;
+                // ctx.line(pos - Vec2::X * 3., pos + Vec2::X * 3., &brush, 1.);
+                // ctx.line(pos - Vec2::Y * 3., pos + Vec2::Y * 3., &brush, 1.);
+            }
+        }
+    }
 }
