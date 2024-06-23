@@ -237,15 +237,13 @@ impl KeithTextPipeline {
 
         // Calculate the glyph section origin (pen position) the glyphs are positioned
         // relative to the anchor point.
-        let align_x = 
-            (match text_layout.justify {
-                JustifyText::Left => -0.5,
-                JustifyText::Center => 0.,
-                JustifyText::Right => 0.5,
-            } - text_layout.anchor.as_vec().x)
+        let align_x = (match text_layout.justify {
+            JustifyText::Left => -0.5,
+            JustifyText::Center => 0.,
+            JustifyText::Right => 0.5,
+        } - text_layout.anchor.as_vec().x)
             * typographic_size_px.x;
-        let align_y =
-            (0.5 - text_layout.anchor.as_vec().y) * (- typographic_size_px.y);
+        let align_y = (0.5 - text_layout.anchor.as_vec().y) * (-typographic_size_px.y);
         let alignment_translation_px = Vec2::new(align_x, align_y);
 
         trace!(
