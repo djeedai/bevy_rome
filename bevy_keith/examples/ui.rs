@@ -214,7 +214,6 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
         for j in -1i32..=1i32 {
             // anchor X
             for i in -1i32..=1i32 {
-
                 //TEMP
                 // if k != -1 || i != -1 || j != 0 {
                 //     continue;

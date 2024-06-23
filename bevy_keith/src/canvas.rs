@@ -604,7 +604,7 @@ pub struct OffsetAndCount {
 }
 
 /// Compacted primitive index and kind.
-#[derive(Debug, Default, Clone, Copy, Pod, Zeroable)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Pod, Zeroable)]
 #[repr(transparent)]
 pub struct PrimitiveIndexAndKind(pub u32);
 
@@ -614,6 +614,12 @@ impl PrimitiveIndexAndKind {
         let value = (index & 0x0FFF_FFFF) | (kind as u32) << 28 | textured;
         Self(value)
     }
+}
+
+#[derive(Clone, Copy)]
+struct AssignedTile {
+    pub tile_index: i32,
+    pub prim_index: PrimitiveIndexAndKind,
 }
 
 #[derive(Default, Clone, Component)]
@@ -633,6 +639,8 @@ pub struct Tiles {
     pub(crate) primitives: Vec<PrimitiveIndexAndKind>,
     /// Offset and count of primitives per tile, into [`Tiles::primitives`].
     pub(crate) offset_and_count: Vec<OffsetAndCount>,
+    /// Local cache saved frame-to-frame to avoid allocations.
+    assigned_tiles: Vec<AssignedTile>,
 }
 
 impl Tiles {
@@ -665,96 +673,93 @@ impl Tiles {
 
         let oc_extra = self.dimensions.x as usize * self.dimensions.y as usize;
         self.offset_and_count.reserve(oc_extra);
-        let oc = self.offset_and_count.spare_capacity_mut();
 
         // Some semi-random guesswork of average tile overlapping count per primitive,
         // so we don't start from a stupidly small allocation.
-        self.primitives.reserve(primitives.len() * 4);
+        self.assigned_tiles.reserve(primitives.len() * 4);
 
-        // let mut count = 0;
-        // for prim in prim {
-        //     let uv_min = (prim.aabb.min / tile_size).floor().as_ivec2();
-        //     let uv_max = (prim.aabb.max / tile_size).ceil().as_ivec2();
+        // Loop over primitives and find tiles they overlap
+        for prim in primitives {
+            // Calculate bounds in terms of tile indices
+            let uv_min = (prim.aabb.min / tile_size).floor().as_ivec2();
+            let mut uv_max = (prim.aabb.max / tile_size).ceil().as_ivec2();
+            if prim.aabb.max.x == tile_size.x * uv_max.x as f32 {
+                // We ignore tiles which only have a shared edge and no actualy surface overlap
+                uv_max.x -= 1;
+            }
+            if prim.aabb.max.y == tile_size.y * uv_max.y as f32 {
+                // We ignore tiles which only have a shared edge and no actualy surface overlap
+                uv_max.y -= 1;
+            }
 
-        //     // Loop on tiles overlapping this primitive. This is generally only a
-        // handful.     for ty in uv_min.y..=uv_max.y {
-        //         for tx in uv_min.x..=uv_max.x {
-        //         }
-        //     }
+            self.assigned_tiles
+                .reserve((uv_max.y - uv_min.y + 1) as usize * (uv_max.x - uv_min.x + 1) as usize);
 
-        //     // Same as IntersectsVolume<> but ignoring overlapping edges if
-        //     // there's no surface.
-        //     // The primitives are defined by ideal coordinates, but rendered
-        //     // with physical pixels,
-        //     // so an overlap of a mathematical infinitely thin edge is not
-        //     // visible, only physical
-        //     // pixels overlap is meaningful.
-        //     let x_overlaps =
-        //         prim.aabb.min.x < tile_aabb.max.x && prim.aabb.max.x >
-        // tile_aabb.min.x;     let y_overlaps =
-        //         prim.aabb.min.y < tile_aabb.max.y && prim.aabb.max.y >
-        // tile_aabb.min.y;     if x_overlaps && y_overlaps {
-        //         //  let prim_aabb = prim.aabb;
-        //         //  trace!("Prim #{count} offset={offset} aabb={prim_aabb:?} overlaps
-        // tile {tx}x{ty} with aabb {tile_aabb:?}");         self.primitives.
-        // push(prim.prim_index);         count += 1;
-        //     }
-        // }
-
-        let mut index = 0;
-        for ty in 0..self.dimensions.y {
-            for tx in 0..self.dimensions.x {
-                let min = Vec2::new(tx as f32, ty as f32) * tile_size;
-                let max = min + tile_size;
-                let tile_aabb = Aabb2d { min, max };
-
-                let offset = self.primitives.len() as u32;
-
-                // Loop on all primitives to gather the ones affecting the current tile.
-                // We expect a lot more tiles than
-                // primitives for a standard 1080p or 4K screen
-                // resolution.
-                let mut count = 0;
-                for prim in primitives {
-                    // Same as IntersectsVolume<> but ignoring overlapping edges if
-                    // there's no surface.
-                    // The primitives are defined by ideal coordinates, but rendered
-                    // with physical pixels,
-                    // so an overlap of a mathematical infinitely thin edge is not
-                    // visible, only physical
-                    // pixels overlap is meaningful.
-                    if prim.aabb.min.x < tile_aabb.max.x
-                        && prim.aabb.max.x > tile_aabb.min.x
-                        && prim.aabb.min.y < tile_aabb.max.y
-                        && prim.aabb.max.y > tile_aabb.min.y
-                    {
-                        //  let prim_aabb = prim.aabb;
-                        //  trace!("Prim #{count} offset={offset} aabb={prim_aabb:?} overlaps tile
-                        // {tx}x{ty} with aabb {tile_aabb:?}");
-                        self.primitives.push(prim.prim_index);
-                        count += 1;
-                    }
+            // Loop on tiles overlapping this primitive. This is generally only a handful,
+            // unless the primitive covers a large part of the screen.
+            for ty in uv_min.y..=uv_max.y {
+                let base_tile_index = ty * self.dimensions.x as i32;
+                for tx in uv_min.x..=uv_max.x {
+                    let tile_index = base_tile_index + tx;
+                    self.assigned_tiles.push(AssignedTile {
+                        tile_index,
+                        prim_index: prim.prim_index,
+                    });
                 }
-
-                // if count > 0 {
-                //     //  trace!(
-                //     //      "Append to o&c buffer len={} entry offset={} count={}",
-                //     //      self.offset_and_count.len(),
-                //     //      offset,
-                //     //      count
-                //     //  );
-                // }
-
-                //self.offset_and_count.push(OffsetAndCount { offset, count });
-                oc[index].write(OffsetAndCount { offset, count });
-                index += 1;
             }
         }
 
-        unsafe {
-            let old_len = self.offset_and_count.len();
-            self.offset_and_count.set_len(old_len + oc_extra);
+        // Sort the primitive<->tile mapping by tile index. Note that the sort MUST BE
+        // STABLE, to preserve the order of primitives, which preserves what is drawn on
+        // top of what.
+        self.assigned_tiles.sort_by_key(|at| at.tile_index);
+
+        // Build the offset and count list
+        self.primitives.reserve(self.assigned_tiles.len());
+        let mut ti = -1;
+        let mut offset = 0;
+        let mut count = 0;
+        for at in &self.assigned_tiles {
+            if at.tile_index != ti {
+                if count > 0 {
+                    // Write previous tile
+                    self.offset_and_count.push(OffsetAndCount {
+                        offset: offset as u32,
+                        count,
+                    });
+                }
+                // Write empty tile(s)
+                for _ in ti + 1..at.tile_index {
+                    self.offset_and_count.push(OffsetAndCount {
+                        offset: offset as u32,
+                        count: 0,
+                    });
+                }
+                offset = self.primitives.len() as u32;
+                count = 0;
+                ti = at.tile_index;
+            }
+
+            self.primitives.push(at.prim_index);
+            count += 1;
         }
+        // Write last pending tile
+        if count > 0 {
+            self.offset_and_count.push(OffsetAndCount {
+                offset: offset as u32,
+                count,
+            });
+        }
+        // Write empty tile(s) at the end
+        for _ in ti + 1..oc_extra as i32 {
+            self.offset_and_count.push(OffsetAndCount {
+                offset: offset as u32,
+                count: 0,
+            });
+        }
+
+        // Clear scratch buffer for next call
+        self.assigned_tiles.clear();
     }
 }
 
@@ -800,6 +805,45 @@ pub fn allocate_atlas_layouts(
         // FIXME - also check for resize...
         if canvas.atlas_layout == Handle::<TextureAtlasLayout>::default() {
             canvas.atlas_layout = layouts.add(TextureAtlasLayout::new_empty(size));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tiles() {
+        let mut tiles = Tiles::default();
+        tiles.update_size(UVec2::new(32, 64));
+        assert_eq!(tiles.dimensions, UVec2::new(4, 8));
+        assert!(tiles.primitives.is_empty());
+        assert!(tiles.offset_and_count.is_empty());
+        assert_eq!(tiles.offset_and_count.capacity(), 32);
+
+        let prim_index = PrimitiveIndexAndKind::new(42, GpuPrimitiveKind::Line, true);
+        tiles.assign_to_tiles(&[PreparedPrimitive {
+            // 8 x 16, exactly aligned on the tile grid => 2 tiles exactly
+            aabb: Aabb2d {
+                min: Vec2::new(8., 16.),
+                max: Vec2::new(16., 32.),
+            },
+            prim_index,
+        }]);
+
+        assert_eq!(tiles.primitives.len(), 2);
+        assert_eq!(tiles.primitives[0], prim_index);
+        assert_eq!(tiles.primitives[1], prim_index);
+
+        assert_eq!(tiles.offset_and_count.len(), 32);
+        for (idx, oc) in tiles.offset_and_count.iter().enumerate() {
+            if idx == 9 || idx == 13 {
+                assert_eq!(oc.count, 1);
+                assert_eq!(oc.offset, if idx == 9 { 0 } else { 1 });
+            } else {
+                assert_eq!(oc.count, 0);
+            }
         }
     }
 }
