@@ -233,9 +233,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let tile_dim = get_tile_dim();
     let tile_index = u32(tile_pos.y) * tile_dim.x + u32(tile_pos.x);
 
-    // Position of the fragment relative to the canvas, which currently is hard-coded
-    // to be centered on the render target, and ignore any DPI settings (works in physical pixels).
-    let canvas_pos = in.position.xy;// - view.viewport.zw / 2.;
+    let canvas_pos = in.position.xy;
     var color = vec4<f32>();
 
     // Loop over all primitives for that tile, and accumulate color

@@ -425,6 +425,10 @@ impl KeithTextPipeline {
             max: Vec2::splat(f32::MIN),
         };
 
+        // FIXME - This ignores the fact that some glyphs (blank spaces) are invisible and therefore
+        // shouldn't contribute to the size when they're at the beginning or end of a line.
+        // https://github.com/bevyengine/bevy/issues/12319
+
         for sg in section_glyphs {
             let scaled_font = get_scaled_font(sg.section_index);
             let glyph = &sg.glyph;
