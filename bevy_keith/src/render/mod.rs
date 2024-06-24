@@ -789,24 +789,10 @@ pub(crate) fn extract_primitives(
                 continue;
             };
 
-            let typographic_size_px = text_layout_info.logical_size;
-
-            // Offset the text based on its anchor (default Anchor::Center is (0,0)).
-            // Note that anchor, and therefore alignment_translation_px, is calculated from
-            // bottom left corner, Y up.
-            // let text_anchor = -(text.anchor.as_vec() + 0.5);
-            // let alignment_translation_px = text_layout_info.logical_size * text_anchor;
-            //let bounds_size_px = text.bounds * scale_factor;
-            let text_anchor = -(text.anchor.as_vec() + 0.5);
-            let alignment_translation_px = typographic_size_px * text_anchor;
-            //let alignment_translation_px = (text.anchor.as_vec() + 0.5) * bounds_size_px;
-
             trace!(
-                "-> {} glyphs, typographic_size_px={} scale_factor={} alignment_translation_px={:?}",
+                "-> {} glyphs, scale_factor={}",
                 text_layout_info.glyphs.len(),
-                typographic_size_px,
-                scale_factor,
-                alignment_translation_px
+                scale_factor
             );
 
             let mut extracted_glyphs = vec![];
@@ -822,20 +808,17 @@ pub(crate) fn extract_primitives(
                 let index = text_glyph.atlas_info.glyph_index as usize;
                 let uv_rect = atlas_layout.textures[index];
 
-                let glyph_offset_px = text_glyph.position; // + alignment_translation_px;
-
                 trace!(
-                    "glyph: position_px={:?} size_px={:?} color=0x{:x} glyph_index={:?} uv_rect={:?} glyph_offset_px={:?}",
+                    "glyph: position_px={:?} size_px={:?} color=0x{:x} glyph_index={:?} uv_rect={:?}",
                     text_glyph.position,
                     text_glyph.size,
                     color,
                     index,
                     uv_rect,
-                    glyph_offset_px,
                 );
 
                 extracted_glyphs.push(ExtractedGlyph {
-                    offset: glyph_offset_px,
+                    offset: text_glyph.position,
                     size: text_glyph.size,
                     color,
                     handle_id: handle.id(),
@@ -1025,6 +1008,7 @@ pub(crate) fn prepare_primitives(
 
         extracted_canvas.tiles.offset_and_count.clear();
 
+        let canvas_translation = -extracted_canvas.canvas_rect.min;
         let inv_scale_factor = 1.0 / extracted_canvas.scale_factor;
 
         // Serialize primitives into a binary float32 array, to work around the fact
@@ -1068,6 +1052,7 @@ pub(crate) fn prepare_primitives(
                 prim.write(
                     &extracted_canvas.texts[..],
                     &mut prim_slice[..total_row_count],
+                    canvas_translation,
                     extracted_canvas.scale_factor,
                 );
 

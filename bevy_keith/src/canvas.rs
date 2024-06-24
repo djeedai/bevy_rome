@@ -100,13 +100,14 @@ impl Primitive {
         &self,
         texts: &[ExtractedText],
         prim: &mut [MaybeUninit<f32>],
+        canvas_translation: Vec2,
         scale_factor: f32,
     ) {
         match &self {
-            Primitive::Line(l) => l.write(prim, scale_factor),
-            Primitive::Rect(r) => r.write(prim, scale_factor),
-            Primitive::Text(t) => t.write(texts, prim, scale_factor),
-            Primitive::QuarterPie(q) => q.write(prim, scale_factor),
+            Primitive::Line(l) => l.write(prim, canvas_translation, scale_factor),
+            Primitive::Rect(r) => r.write(prim, canvas_translation, scale_factor),
+            Primitive::Text(t) => t.write(texts, prim, canvas_translation, scale_factor),
+            Primitive::QuarterPie(q) => q.write(prim, canvas_translation, scale_factor),
         };
     }
 }
@@ -164,10 +165,10 @@ impl LinePrimitive {
         }
     }
 
-    fn write(&self, prim: &mut [MaybeUninit<f32>], scale_factor: f32) {
+    fn write(&self, prim: &mut [MaybeUninit<f32>], canvas_translation: Vec2, scale_factor: f32) {
         assert_eq!(6, prim.len());
-        prim[0].write(self.start.x * scale_factor);
-        prim[1].write(self.start.y * scale_factor);
+        prim[0].write((self.start.x + canvas_translation.x) * scale_factor);
+        prim[1].write((self.start.y + canvas_translation.y) * scale_factor);
         prim[2].write(self.end.x * scale_factor);
         prim[3].write(self.end.y * scale_factor);
         prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
@@ -231,7 +232,7 @@ impl RectPrimitive {
         }
     }
 
-    fn write(&self, prim: &mut [MaybeUninit<f32>], scale_factor: f32) {
+    fn write(&self, prim: &mut [MaybeUninit<f32>], canvas_translation: Vec2, scale_factor: f32) {
         assert_eq!(
             self.row_count() as usize,
             prim.len(),
@@ -242,7 +243,7 @@ impl RectPrimitive {
 
         let half_min = self.rect.min * (0.5 * scale_factor);
         let half_max = self.rect.max * (0.5 * scale_factor);
-        let center = half_min + half_max;
+        let center = half_min + half_max + canvas_translation * scale_factor;
         let half_size = half_max - half_min;
         prim[0].write(center.x);
         prim[1].write(center.y);
@@ -308,7 +309,7 @@ impl TextPrimitive {
         }
     }
 
-    fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], scale_factor: f32) {
+    fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], canvas_translation: Vec2, scale_factor: f32) {
         let index = self.id as usize;
         let glyphs = &texts[index].glyphs;
         let glyph_count = glyphs.len();
@@ -316,8 +317,8 @@ impl TextPrimitive {
         let mut ip = 0;
         //let inv_scale_factor = 1. / scale_factor;
         for i in 0..glyph_count {
-            let x = glyphs[i].offset.x + self.rect.min.x * scale_factor;
-            let y = glyphs[i].offset.y + self.rect.min.y * scale_factor;
+            let x = glyphs[i].offset.x + (self.rect.min.x + canvas_translation.x) * scale_factor;
+            let y = glyphs[i].offset.y + (self.rect.min.y + canvas_translation.y) * scale_factor;
             let hw = glyphs[i].size.x / 2.0;
             let hh = glyphs[i].size.y / 2.0;
 
@@ -431,14 +432,14 @@ impl QuarterPiePrimitive {
         }
     }
 
-    fn write(&self, prim: &mut [MaybeUninit<f32>], _scale_factor: f32) {
+    fn write(&self, prim: &mut [MaybeUninit<f32>], canvas_translation: Vec2, scale_factor: f32) {
         assert_eq!(self.row_count() as usize, prim.len());
         let radii_mask = BVec2::new(self.flip_x, self.flip_y);
         let signed_radii = Vec2::select(radii_mask, -self.radii, self.radii);
-        prim[0].write(self.origin.x);
-        prim[1].write(self.origin.y);
-        prim[2].write(signed_radii.x);
-        prim[3].write(signed_radii.y);
+        prim[0].write((self.origin.x + canvas_translation.x) * scale_factor);
+        prim[1].write((self.origin.y + canvas_translation.y) * scale_factor);
+        prim[2].write(signed_radii.x * scale_factor);
+        prim[3].write(signed_radii.y * scale_factor);
         prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
     }
 }
