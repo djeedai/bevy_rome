@@ -144,7 +144,11 @@ fn draw_button(
     ctx.draw_text(text, (rect.min + rect.max) / 2.);
 }
 
-fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<PrimaryWindow>>) {
+fn run(
+    time: Res<Time>,
+    mut query: Query<(&mut Canvas, &MyRes)>,
+    q_window: Query<&Window, With<PrimaryWindow>>,
+) {
     let (mut canvas, my_res) = query.single_mut();
     canvas.clear();
 
@@ -170,13 +174,14 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     };
     ctx.fill(rect, &brush);
 
+    let radius = time.elapsed_seconds().sin() * 8. + 8.;
     let brush = ctx.solid_brush(Color::PINK);
     let rounded_rect = RoundedRect {
         rect: Rect {
-            min: Vec2::ZERO,
-            max: Vec2::splat(32.),
+            min: Vec2::new(30., -132.),
+            max: Vec2::new(62., -100.),
         },
-        radius: 4.,
+        radius,
     };
     ctx.fill(rounded_rect, &brush);
 
@@ -197,22 +202,24 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     ctx.draw_image(rect, my_res.image.clone());
 
     let brush = ctx.solid_brush(Color::GREEN);
+    let delta = time.elapsed_seconds().sin() * 15. + 30.;
     for i in 0..=10 {
         ctx.line(
             Vec2::new(-200.5, 0.5 + i as f32 * 15.),
-            Vec2::new(0.5, 0.5 + i as f32 * 40.),
+            Vec2::new(0.5, 0.5 + i as f32 * delta),
             &brush,
             1. + i as f32,
         );
     }
 
+    let color = Color::hsl((time.elapsed_seconds() / 3.).fract() * 360., 0.5, 0.5);
     let text = ctx
         .new_layout("bevy_keith")
-        .color(Color::PINK)
+        .color(color)
         .font(my_res.font.clone())
         .font_size(128.)
         .build();
-    ctx.draw_text(text, Vec2::new(-600., 500.0));
+    ctx.draw_text(text, Vec2::new(-350., 300.0));
 
     // // Rounded rect with border
     // let rect = Rect::from_center_size(Vec2::new(300., 200.), Vec2::new(80.,
