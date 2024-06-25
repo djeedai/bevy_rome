@@ -169,8 +169,8 @@ impl LinePrimitive {
         assert_eq!(6, prim.len());
         prim[0].write((self.start.x + canvas_translation.x) * scale_factor);
         prim[1].write((self.start.y + canvas_translation.y) * scale_factor);
-        prim[2].write(self.end.x * scale_factor);
-        prim[3].write(self.end.y * scale_factor);
+        prim[2].write((self.end.x + canvas_translation.x) * scale_factor);
+        prim[3].write((self.end.y + canvas_translation.y) * scale_factor);
         prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
         prim[5].write(self.thickness * scale_factor);
     }
