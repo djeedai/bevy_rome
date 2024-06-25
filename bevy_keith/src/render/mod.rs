@@ -40,7 +40,7 @@ use bevy::{
 };
 
 use crate::{
-    canvas::{Canvas, Primitive, PrimitiveIndexAndKind, PrimitiveInfo, Tiles},
+    canvas::{Canvas, OffsetAndCount, Primitive, PrimitiveIndexAndKind, PrimitiveInfo, Tiles},
     text::CanvasTextId,
     PRIMITIVE_SHADER_HANDLE,
 };
@@ -987,6 +987,8 @@ pub(crate) fn prepare_primitives(
         };
     }
 
+    let oc_align = render_device.limits().min_storage_buffer_offset_alignment;
+
     let extracted_canvases = &mut extracted_canvases.canvases;
 
     // Loop on all extracted canvases to process their primitives
@@ -1134,6 +1136,13 @@ pub(crate) fn prepare_primitives(
 
                     oc_offset += oc_count;
                     pp_offset = prepared_primitives.len() as u32;
+
+                    // Align oc_offset to min_storage_buffer_offset_alignment
+                    oc_offset = oc_offset.next_multiple_of(oc_align);
+                    extracted_canvas
+                        .tiles
+                        .offset_and_count
+                        .resize(oc_offset as usize, OffsetAndCount::default());
                 }
 
                 current_batch = new_batch;
