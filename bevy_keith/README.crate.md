@@ -7,6 +7,8 @@
 
 2D graphic library inspired by Piet (📦 [`piet`](https://crates.io/crates/piet)) for the [Bevy game engine](https://bevyengine.org/).
 
+The library uses a custom Signed Distance Field (SDF) renderer, enabling anti-aliased shapes of any scale with very few draw calls (typically, single draw call per canvas).
+
 Currently a purely immediate-mode library, but with future plans to explore partial retaining to reduce CPU usage.
 
 ![Preview of canvas drawing with bevy_keith](./media/button.gif)
@@ -64,10 +66,11 @@ fn run(mut query: Query<&mut Canvas>) {
     ctx.fill(rect, &brush);
 
     // Draw a text
+    let font_handle: Handle<Font> = [...]
     let text = ctx
         .new_layout("Hello World!")
         .color(Color::ORANGE_RED)
-        .font(...)
+        .font(font_handle)
         .font_size(24.)
         .build();
     ctx.draw_text(text, Vec2::ZERO);
@@ -94,5 +97,6 @@ fn run(mut query: Query<&mut Canvas>) {
   - [x] Axis-aligned rectangle
     - [x] Fill
     - [x] Stroke
+    - [x] Rounded corners
   - [x] Single line
   - [ ] Polyline
