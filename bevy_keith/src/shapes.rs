@@ -71,8 +71,9 @@ impl Shape for Rect {
 }
 
 /// Rounded rectangle shape.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct RoundedRect {
-    /// The rectangle itself.
+    /// The rectangle itself, inclusive of the rounded corners.
     pub rect: Rect,
     /// The radius of the corners.
     pub radius: f32,

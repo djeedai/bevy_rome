@@ -174,31 +174,14 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPrimitiveBatch {
     fn render<'w>(
         _item: &P,
         _view: ROQueryItem<'w, Self::ViewQuery>,
-        primitive_batch: Option<ROQueryItem<'w, Self::ItemQuery>>,
-        primitive_meta: SystemParamItem<'w, '_, Self::Param>,
+        _primitive_batch: Option<ROQueryItem<'w, Self::ItemQuery>>,
+        _primitive_meta: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let Some(primitive_batch) = primitive_batch else {
-            return RenderCommandResult::Failure;
-        };
-
-        let primitive_meta = primitive_meta.into_inner();
-
-        if let Some(_canvas_meta) = primitive_meta
-            .canvas_meta
-            .get(&primitive_batch.canvas_entity)
-        {
-            // Draw a single fullscreen triangle, implicitly defined by its vertex IDs
-            trace!("DrawPrimitiveBatch");
-            pass.draw(0..3, 0..1);
-            RenderCommandResult::Success
-        } else {
-            error!(
-                "DrawPrimitiveBatch: Cannot find canvas meta for canvas entity {:?}",
-                primitive_batch.canvas_entity
-            );
-            RenderCommandResult::Failure
-        }
+        // Draw a single fullscreen triangle, implicitly defined by its vertex IDs
+        trace!("DrawPrimitiveBatch");
+        pass.draw(0..3, 0..1);
+        RenderCommandResult::Success
     }
 }
 
@@ -297,27 +280,9 @@ impl PrimitiveBatch {
     }
 }
 
-/// Metadata for [`Canvas`] rendering.
-struct CanvasMeta {
-    /// Entity the [`Canvas`] component is attached to.
-    canvas_entity: Entity,
-}
-
-#[derive(Resource)]
+#[derive(Default, Resource)]
 pub struct PrimitiveMeta {
     view_bind_group: Option<BindGroup>,
-    /// Map from an [`Entity`] with a [`Canvas`] component to the meta for that
-    /// canvas.
-    canvas_meta: HashMap<Entity, CanvasMeta>,
-}
-
-impl Default for PrimitiveMeta {
-    fn default() -> Self {
-        Self {
-            view_bind_group: None,
-            canvas_meta: HashMap::new(),
-        }
-    }
 }
 
 /// Shader bind groups for all images currently in use by primitives.
@@ -1390,20 +1355,6 @@ pub fn prepare_bind_groups(
         );
         debug!("Created bind group {primitive_bind_group:?} for batch on entity {batch_entity:?} with oc_offset={oc_offset} oc_size={oc_size}...");
         batch.primitive_bind_group = BatchBuffers::Prepared(primitive_bind_group);
-
-        // Update meta map
-        primitive_meta
-            .canvas_meta
-            .entry(canvas_entity)
-            .or_insert_with(|| {
-                trace!("Adding new CanvasMeta: canvas_entity={:?}", canvas_entity);
-                CanvasMeta { canvas_entity }
-            });
-        trace!(
-            "CanvasMeta: canvas_entity={:?} batch_entity={:?}",
-            canvas_entity,
-            batch_entity,
-        );
 
         // Set bind group for texture, if any
         if batch.image_handle_id != AssetId::<Image>::invalid() {

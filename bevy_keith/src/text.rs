@@ -40,11 +40,6 @@ impl CanvasTextId {
             text_id,
         }
     }
-
-    /// Get the text local index as an array index (`usize`).
-    pub(crate) fn index(&self) -> usize {
-        self.text_id as usize
-    }
 }
 
 /// A glyph cached inside an atlas.

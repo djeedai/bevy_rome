@@ -12,7 +12,7 @@ use bevy::{
     math::{bounding::Aabb2d, Rect, UVec2, Vec2, Vec3},
     prelude::{BVec2, OrthographicProjection},
     render::{camera::Camera, color::Color, texture::Image},
-    sprite::{DynamicTextureAtlasBuilder, TextureAtlasLayout},
+    sprite::TextureAtlasLayout,
     utils::default,
 };
 use bytemuck::{Pod, Zeroable};
@@ -309,7 +309,13 @@ impl TextPrimitive {
         }
     }
 
-    fn write(&self, texts: &[ExtractedText], prim: &mut [MaybeUninit<f32>], canvas_translation: Vec2, scale_factor: f32) {
+    fn write(
+        &self,
+        texts: &[ExtractedText],
+        prim: &mut [MaybeUninit<f32>],
+        canvas_translation: Vec2,
+        scale_factor: f32,
+    ) {
         let index = self.id as usize;
         let glyphs = &texts[index].glyphs;
         let glyph_count = glyphs.len();
@@ -405,9 +411,6 @@ impl QuarterPiePrimitive {
     /// Number of primitive buffer rows (4 bytes) per primitive.
     const ROW_COUNT: u32 = 5;
 
-    /// Number of indices per primitive (2 triangles).
-    const INDEX_COUNT: u32 = 6;
-
     pub fn aabb(&self) -> Aabb2d {
         Aabb2d {
             min: self.origin - self.radii,
@@ -468,8 +471,6 @@ pub struct Canvas {
     primitives: Vec<Primitive>,
     /// Collection of allocated texts.
     pub(crate) text_layouts: Vec<TextLayout>,
-    /// Atlas builder.
-    pub(crate) atlas_builder: DynamicTextureAtlasBuilder,
     /// Atlas layout. Needs to be a separate asset resource due to Bevy's API
     /// only.
     pub(crate) atlas_layout: Handle<TextureAtlasLayout>,
@@ -482,7 +483,6 @@ impl Default for Canvas {
             background_color: None,
             primitives: vec![],
             text_layouts: vec![],
-            atlas_builder: DynamicTextureAtlasBuilder::new(Vec2::splat(1024.0), 0),
             atlas_layout: Handle::default(),
         }
     }
@@ -553,11 +553,6 @@ impl Canvas {
         layout.id = id;
         self.text_layouts.push(layout);
         id
-    }
-
-    // Currently unused; see buffer()
-    pub(crate) fn take_buffer(&mut self) -> Vec<Primitive> {
-        std::mem::take(&mut self.primitives)
     }
 
     // Workaround for Extract phase without mut access to MainWorld Canvas

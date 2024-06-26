@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 mod canvas;
 mod render;
 mod render_context;
