@@ -1,24 +1,59 @@
-mod canvas;
+//! 🐕 Bevy Keith is a 2D graphics library exposing an immediate-mode style
+//! interface.
+//!
+//! # Quick start
+//!
+//! The central component is the [`Canvas`], which attached to a 2D [`Camera`]
+//! stores the drawing commands enqueued each frame, then renders them.
+//!
+//! To draw on a [`Canvas`], you typically use the [`RenderContext`] helper:
+//!
+//! ```
+//! fn draw(mut query: Query<&mut Canvas>) {
+//!     let mut canvas = query.single_mut();
+//!     canvas.clear();
+//!     let mut ctx = canvas.render_context();
+//!     let brush = ctx.solid_brush(Color::RED);
+//!     ctx.fill(Rect::from_center_size(Vec2::ZERO, Vec2::ONE), &brush);
+//! }
+//! ```
+//!
+//! # Features
+//!
+//! 🐕 Bevy Keith contains a renderer based on Signed Distance Fields (SDFs),
+//! which are mathematical descriptions of shapes to draw. This is unlike more
+//! standard renderers, like the built-in Bevy PBR renderer, which work with
+//! triangle-based meshes. This is similar to vector graphics, and means the
+//! shape can be arbitrarily zoomed in and out without any loss of precision or
+//! aliasing. SDFs also enable various features like outlining and glow on any
+//! kind of shape (TODO; not yet implemented).
+//!
+//! Currently, text rendering uses pre-rasterized glyphs stored in a texture
+//! atlas, and therefore can suffer from aliasing if zoomed in too much.
+
+use bevy::{
+    asset::load_internal_asset,
+    core_pipeline::core_2d::Transparent2d,
+    prelude::*,
+    render::{
+        render_phase::AddRenderCommand,
+        render_resource::{Shader, SpecializedRenderPipelines},
+        Render, RenderApp, RenderSet,
+    },
+};
+
+pub mod canvas;
 mod render;
-mod render_context;
-mod shapes;
-mod text;
+pub mod render_context;
+pub mod shapes;
+pub mod text;
 
 pub mod prelude {
     #[doc(hidden)]
-    pub use crate::render_context::RenderContext;
+    pub use crate::*;
 }
 
-use bevy::asset::load_internal_asset;
-use bevy::core_pipeline::core_2d::Transparent2d;
-use bevy::prelude::*;
-use bevy::render::{
-    render_phase::AddRenderCommand,
-    render_resource::{Shader, SpecializedRenderPipelines},
-    RenderApp,
-};
-use bevy::render::{Render, RenderSet};
-pub use canvas::{Canvas, Primitive};
+pub use canvas::{Canvas, Primitive, TileConfig};
 use render::{
     DrawPrimitive, ExtractedCanvases, ImageBindGroups, PrimitiveAssetEvents, PrimitiveMeta,
     PrimitivePipeline,
@@ -44,14 +79,19 @@ pub enum KeithSystem {
     /// Spawn any [`Tiles`] or [`TileConfig`] component where missing.
     ///
     /// This executes as part of the [`PostUpdate`] schedule.
+    ///
+    /// [`Tiles`]: crate::canvas::Tiles
     SpawnMissingTilesComponents,
 
     /// Resize the [`Tiles`] component of a [`Canvas`] to accomodate the size of
     /// the render target of a [`Camera`].
+    ///
+    /// [`Tiles`]: crate::canvas::Tiles
     // FIXME - Currently a canvas always targets the full camera screen size.
     ResizeTilesToCameraRenderTarget,
 
-    /// Label for [`render::extract_primitives()`].
+    /// Extract the render commands stored this frame in all the [`Canvas`], to
+    /// prepare for rendering.
     ExtractPrimitives,
 }
 

@@ -462,7 +462,8 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
     }
 }
 
-/// Rendering data extracted from a single [`Canvas`] component.
+/// Rendering data extracted from a single [`Canvas`] component during the
+/// [`KeithSystem::ExtractPrimitives`] render set.
 #[derive(Default)]
 pub struct ExtractedCanvas {
     /// Global transform of the canvas.

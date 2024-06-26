@@ -1,3 +1,12 @@
+//! Definition of the various shapes available to draw on a [`Canvas`].
+//!
+//! All the shapes implement the [`Shape`] trait.
+//!
+//! | Shape | Description |
+//! |---|---|
+//! | [`Rect`] | Axis-aligned rectangle. |
+//! | [`RoundedRect`] | Axis-aligned rectangle with rounded corners. |
+
 use bevy::prelude::{Rect, Vec2};
 
 use crate::{

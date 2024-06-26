@@ -1,3 +1,27 @@
+//! A canvas represents the drawing surface storing draw commands.
+//!
+//! To prepare to draw with 🐕 Bevy Keith, add a [`Canvas`] component to the
+//! same [`Entity`] as a [`Camera`]. Currently only 2D orthographic cameras are
+//! supported.
+//!
+//! In general, you don't need to interact directly with a [`Canvas`] to draw.
+//! Instead, the [`RenderContext`] exposes a more convenient interface on top of
+//! a specific [`Canvas`]. Simply retrieve the render context for an existing
+//! canvas and use it to enqueue draw commands.
+//!
+//! ```
+//! fn draw(mut query: Query<&mut Canvas>) {
+//!     let mut canvas = query.single_mut();
+//!     canvas.clear();
+//!     let mut ctx = canvas.render_context();
+//!     let brush = ctx.solid_brush(Color::RED);
+//!     ctx.fill(Rect::from_center_size(Vec2::ZERO, Vec2::ONE), &brush);
+//! }
+//! ```
+//!
+//! At the end of each frame, the render commands stored in the [`Canvas`] are
+//! extracted into the render app and drawn.
+
 use std::mem::MaybeUninit;
 
 use bevy::{
@@ -32,6 +56,10 @@ pub(crate) struct PrimitiveInfo {
 
 /// Kind of primitives understood by the GPU shader.
 ///
+/// Determines the shader path and the SDF function to use to render a
+/// primitive. Each primitive has a different shader encoding and
+/// functionalities.
+///
 /// # Note
 ///
 /// The enum values must be kept in sync with the values inside the primitive
@@ -51,15 +79,26 @@ pub enum GpuPrimitiveKind {
 }
 
 /// Drawing primitives.
+///
+/// The drawing primitives are the lowest-level concepts mapping directly to
+/// shader instructions. For the higher level shapes to draw on a [`Canvas`],
+/// see the [`shapes`] module instead.
+///
+/// [`shapes`]: crate::shapes
 #[derive(Debug, Clone, Copy)]
 pub enum Primitive {
+    /// A line between two points, with a color and thickness.
     Line(LinePrimitive),
+    /// An axis-aligned rectangle with a color, optional rounded corners, and
+    /// optional texture.
     Rect(RectPrimitive),
+    /// A text with a color.
     Text(TextPrimitive),
     QuarterPie(QuarterPiePrimitive),
 }
 
 impl Primitive {
+    /// Get the [`GpuPrimitiveKind`] of a primitive.
     pub fn gpu_kind(&self) -> GpuPrimitiveKind {
         match self {
             Primitive::Line(_) => GpuPrimitiveKind::Line,
@@ -69,6 +108,11 @@ impl Primitive {
         }
     }
 
+    /// Get the AABB of a primitive.
+    ///
+    /// This is mainly used internally for tiling. There's no guarantee that the
+    /// AABB is tightly fitting; instead it only needs to be conservative and
+    /// enclose all the primitive.
     pub fn aabb(&self) -> Aabb2d {
         match self {
             Primitive::Line(l) => l.aabb(),
@@ -78,6 +122,7 @@ impl Primitive {
         }
     }
 
+    /// Is the primitive textured?
     pub fn is_textured(&self) -> bool {
         match self {
             Primitive::Line(_) => false,
@@ -87,6 +132,7 @@ impl Primitive {
         }
     }
 
+    /// Internal primitive info for drawing a primitive.
     pub(crate) fn info(&self, texts: &[ExtractedText]) -> PrimitiveInfo {
         match &self {
             Primitive::Line(l) => l.info(),
@@ -96,6 +142,11 @@ impl Primitive {
         }
     }
 
+    /// Serialize a primitive and write its binary blob into the given buffer,
+    /// ready to be consumed by the GPU shader.
+    ///
+    /// Anything written here must be kept in sync format-wise with what is read
+    /// back in the shader.
     pub(crate) fn write(
         &self,
         texts: &[ExtractedText],
@@ -136,15 +187,26 @@ impl From<QuarterPiePrimitive> for Primitive {
     }
 }
 
+/// A line between two points, with a color and thickness.
+///
+/// This is essentially an oriented rectangle.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct LinePrimitive {
+    /// The starting point of the line.
     pub start: Vec2,
+    /// The ending point of the line.
     pub end: Vec2,
+    /// The line color.
     pub color: Color,
+    /// The line thickness. Must be greater than zero.
+    ///
+    /// The line shape extends equally by `thickness / 2.` on both sides of the
+    /// mathematical (infinitely thin) line joining the start and end points.
     pub thickness: f32,
 }
 
 impl LinePrimitive {
+    /// The AABB of the line primitive.
     pub fn aabb(&self) -> Aabb2d {
         let dir = (self.end - self.start).normalize();
         let tg = Vec2::new(-dir.y, dir.x);
@@ -176,22 +238,24 @@ impl LinePrimitive {
     }
 }
 
+/// An axis-aligned rectangle with a color, optional rounded corners, and
+/// optional texture.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct RectPrimitive {
     /// Position and size of the rectangle in its canvas space.
     ///
     /// For rounded rectangles, this is the AABB (the radius is included).
     pub rect: Rect,
-    /// Rounded corners radius.
+    /// Rounded corners radius. Set to zero to disable rounded corners.
     pub radius: f32,
     /// Uniform rectangle color.
     pub color: Color,
+    /// Optional handle to the image used for texturing the rectangle.
+    pub image: Option<AssetId<Image>>,
     /// Flip the image (if any) along the horizontal axis.
     pub flip_x: bool,
     /// Flip the image (if any) along the vertical axis.
     pub flip_y: bool,
-    /// Optional handle to the image used for texturing the rectangle.
-    pub image: Option<AssetId<Image>>,
 }
 
 impl RectPrimitive {
@@ -200,6 +264,7 @@ impl RectPrimitive {
     /// Number of primitive buffer rows (4 bytes) per primitive when textured.
     const ROW_COUNT_TEX: u32 = 10;
 
+    /// Get the AABB of this rectangle.
     pub fn aabb(&self) -> Aabb2d {
         Aabb2d {
             min: self.rect.min,
@@ -207,13 +272,11 @@ impl RectPrimitive {
         }
     }
 
+    /// Is this primitive textured?
+    ///
+    /// True if [`RectPrimitive::image`] is `Some`.
     pub fn is_textured(&self) -> bool {
         self.image.is_some()
-    }
-
-    pub fn center(&self) -> Vec3 {
-        let c = (self.rect.min + self.rect.max) * 0.5;
-        c.extend(0.)
     }
 
     #[inline]
@@ -261,10 +324,19 @@ impl RectPrimitive {
     }
 }
 
+/// A reference to a text with a color.
+///
+/// The text primitive is not stored directly inside this struct. Instead, the
+/// struct stores an [`id`] field indexing the text into its [`Canvas`]. This
+/// extra indirection allows storing all texts together for convenience, as they
+/// require extra pre-processing compared to other primitives.
+///
+/// [`id`]: crate::canvas::TextPrimitive::id
 #[derive(Debug, Clone, Copy)]
 pub struct TextPrimitive {
     /// Unique ID of the text inside its owner [`Canvas`].
     pub id: u32,
+    /// TODO - Vec2 instead?
     pub rect: Rect,
 }
 
@@ -273,6 +345,7 @@ impl TextPrimitive {
     /// buffer.
     pub const ROW_PER_GLYPH: u32 = RectPrimitive::ROW_COUNT_TEX;
 
+    /// Get the AABB of this text.
     pub fn aabb(&self, canvas: &ExtractedCanvas) -> Aabb2d {
         let text = &canvas.texts[self.id as usize];
         let mut aabb = Aabb2d {
@@ -592,7 +665,7 @@ pub struct TileConfig {}
 
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
-pub struct OffsetAndCount {
+pub(crate) struct OffsetAndCount {
     /// Base index into [`Tiles::primitives`].
     pub offset: u32,
     /// Number of consecutive primitive offsets in [`Tiles::primitives`].
@@ -602,7 +675,7 @@ pub struct OffsetAndCount {
 /// Compacted primitive index and kind.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Pod, Zeroable)]
 #[repr(transparent)]
-pub struct PrimitiveIndexAndKind(pub u32);
+pub(crate) struct PrimitiveIndexAndKind(pub u32);
 
 impl PrimitiveIndexAndKind {
     pub fn new(index: u32, kind: GpuPrimitiveKind, textured: bool) -> Self {

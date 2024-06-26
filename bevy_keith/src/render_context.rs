@@ -1,22 +1,17 @@
-#![allow(unused_variables, dead_code, unused_imports)]
+//! Rendering context exposing convenience functions to draw into a [`Canvas`].
 
-use std::{ops::RangeBounds, str, sync::Arc};
+use std::str;
 
-use bevy::math::Affine2;
+//use bevy::math::Affine2;
+use bevy::math::{Rect, Vec2};
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
 use bevy::text::TextLayoutInfo;
-use bevy::{
-    math::{Rect, Vec2},
-    render::render_resource::Buffer,
-    text::Font,
-    utils::{default, HashMap},
-};
 
-use crate::canvas::{
-    Canvas, LinePrimitive, Primitive, QuarterPiePrimitive, RectPrimitive, TextPrimitive,
+use crate::{
+    canvas::{Canvas, LinePrimitive, RectPrimitive, TextPrimitive},
+    shapes::Shape,
 };
-use crate::{CanvasTextId, Shape};
 
 #[derive(Debug, Clone)]
 pub struct Brush {
@@ -202,10 +197,10 @@ impl<'c> TextLayoutBuilder<'c> {
     }
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct BevyImage {
-    image: bevy::render::texture::Image,
-}
+// #[derive(Debug, Default, Clone)]
+// pub struct BevyImage {
+//     image: bevy::render::texture::Image,
+// }
 
 // impl BevyImage {
 //     fn new(width: usize, height: usize, buf: &[u8], format:
@@ -235,7 +230,7 @@ pub struct BevyImage {
 
 pub struct RenderContext<'c> {
     /// Transform applied to all operations on this render context.
-    transform: Affine2,
+    //transform: Affine2,
     /// Underlying canvas render operations are directed to.
     canvas: &'c mut Canvas,
 }
@@ -244,7 +239,7 @@ impl<'c> RenderContext<'c> {
     /// Create a new render context to draw on an existing canvas.
     pub fn new(canvas: &'c mut Canvas) -> Self {
         Self {
-            transform: Affine2::IDENTITY, // FIXME - unused
+            //transform: Affine2::IDENTITY, // FIXME - unused
             canvas,
         }
     }
