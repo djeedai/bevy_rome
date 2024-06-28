@@ -35,3 +35,8 @@ required-features = [ "bevy/bevy_winit", "bevy/png" ]
 [[example]]
 name = "ui"
 required-features = [ "bevy/bevy_winit", "bevy/png" ]
+
+[[example]]
+name = "01-game-menu"
+path = "examples/bevy-10-challenges/01-game-menu.rs"
+required-features = [ "bevy/bevy_winit", "bevy/png" ]

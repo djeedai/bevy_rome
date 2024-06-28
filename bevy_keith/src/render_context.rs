@@ -304,6 +304,8 @@ impl<'c> RenderContext<'c> {
             flip_x: false,
             flip_y: false,
             image: Some(image.id()),
+            border_width: 0.,
+            border_color: Color::NONE,
         });
     }
 }

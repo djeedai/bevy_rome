@@ -7,7 +7,7 @@
 //! | [`Rect`] | Axis-aligned rectangle. |
 //! | [`RoundedRect`] | Axis-aligned rectangle with rounded corners. |
 
-use bevy::prelude::{Rect, Vec2};
+use bevy::{prelude::{Rect, Vec2}, render::color::Color};
 
 use crate::{
     canvas::{QuarterPiePrimitive, RectPrimitive},
@@ -36,6 +36,8 @@ impl Shape for Rect {
             flip_x: false,
             flip_y: false,
             image: None,
+            border_width: 0.,
+            border_color: Color::NONE,
         });
     }
 
@@ -53,6 +55,8 @@ impl Shape for Rect {
             flip_x: false,
             flip_y: false,
             image: None,
+            border_width: 0.,
+            border_color: Color::NONE,
         };
         canvas.draw(prim);
 

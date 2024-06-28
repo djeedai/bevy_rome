@@ -92,13 +92,15 @@ struct IndexAndKind {
     index: u32,
     kind: u32,
     textured: bool,
+    bordered: bool,
 }
 
 fn unpack_index_and_kind(value: u32) -> IndexAndKind {
-    let index = (value & 0x0FFFFFFFu);
+    let index = (value & 0x07FFFFFFu);
+    let bordered = (value & 0x08000000u) != 0u;
     let kind = (value & 0x70000000u) >> 28u;
     let textured = (value & 0x80000000u) != 0u;
-    return IndexAndKind(index, kind, textured);
+    return IndexAndKind(index, kind, textured, bordered);
 }
 
 fn get_vertex_pos(vertex_index: u32) -> vec2<f32> {
@@ -142,7 +144,14 @@ fn sdf_rect(offset: u32, canvas_pos: vec2<f32>, textured: bool) -> vec4<f32> {
         color *= textureSample(quad_texture, quad_sampler, uv).rgb;
     }
 
-    return vec4<f32>(color, alpha);
+    let outline = 8.;
+    let outline_color = vec3<f32>(1., 0., 1.);
+    let dist2 = dist + outline / 2.;
+    let ratio2 = dist2 + 0.5; // pixel center is at 0.5 from actual border
+    let alpha2 = smoothstep(1., 0., ratio2);
+    let color2 = mix(color, outline_color, 1. - alpha2);
+
+    return vec4<f32>(color2, alpha);
 }
 
 fn sdf_glyph(offset: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
@@ -177,6 +186,13 @@ fn sdf_glyph(offset: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
     return vec4<f32>(rgba.rgb, alpha * tex.a * rgba.a);
 }
 
+fn sd_segment(p0: vec2<f32>, p1: vec2<f32>, p: vec2<f32>) -> f32 {
+    let pa = p - p0;
+    let ba = p1 - p0;
+    let h = saturate(dot(pa, ba) / dot(ba, ba));
+    return length(pa - ba * h);
+}
+
 fn sdf_line(offset: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
     let p0x = primitives.elems[offset];
     let p0y = primitives.elems[offset + 1u];
@@ -191,12 +207,13 @@ fn sdf_line(offset: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
     let color = unpack4x8unorm(uc);
 
     let thickness = primitives.elems[offset + 5u];
+    let radius = 6.0;
 
     let d = normalize(dir);
     let center = p0 + dir / 2.;
     let rot_delta = mat2x2<f32>(d.x, -d.y, d.y, d.x) * (canvas_pos - center);
     let delta = abs(rot_delta) - vec2<f32>(length(dir), thickness) * 0.5;
-    let dist = length(max(delta, vec2<f32>(0))) + max(min(delta.x, 0.), min(delta.y, 0.));
+    let dist = length(max(delta, vec2<f32>(0))) + max(min(delta.x, 0.), min(delta.y, 0.)) - radius;
     let ratio = dist + 0.5; // pixel center is at 0.5 from actual border
     let alpha = smoothstep(color.a, 0., ratio);
 

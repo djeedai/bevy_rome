@@ -992,8 +992,9 @@ pub(crate) fn prepare_primitives(
         for prim in &extracted_canvas.primitives {
             let base_index = primitives.len() as u32;
             let is_textured = prim.is_textured();
+            let is_bordered = prim.is_bordered();
             let mut prim_index =
-                PrimitiveIndexAndKind::new(base_index, prim.gpu_kind(), is_textured);
+                PrimitiveIndexAndKind::new(base_index, prim.gpu_kind(), is_textured, is_bordered);
 
             trace!("+ Primitive @ base_index={}", base_index);
 

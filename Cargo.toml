@@ -7,3 +7,6 @@ members = [
 exclude = [
     "bevy_piet", # Deprecated
 ]
+
+[profile.release]
+debug = true

@@ -129,8 +129,8 @@ fn draw_button(
     ctx.fill(rect, &brush);
 
     // Outline
-    let brush = ctx.solid_brush(Color::rgb(0.5, 0.5, 0.5));
-    ctx.stroke(rect, &brush, 1.);
+    // let brush = ctx.solid_brush(Color::rgb(0.5, 0.5, 0.5));
+    // ctx.stroke(rect, &brush, 1.);
 
     // Text
     let text = ctx
