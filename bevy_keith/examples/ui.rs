@@ -1,25 +1,34 @@
 //! Basic quad and text drawing inside a `Canvas`.
 
-use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
-use bevy::diagnostic::LogDiagnosticsPlugin;
-use bevy::render::camera::ScalingMode;
-use bevy::{log::LogPlugin, math::Rect, prelude::*, sprite::Anchor, window::PrimaryWindow};
+use bevy::{
+    color::palettes::css::*,
+    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    log::LogPlugin,
+    math::Rect,
+    prelude::*,
+    render::camera::ScalingMode,
+    sprite::Anchor,
+    window::PrimaryWindow,
+};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_keith::*;
+
+mod utils;
+use utils::*;
 
 fn main() {
     App::new()
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins(LogDiagnosticsPlugin::default())
         // Helper to exit with ESC key
-        .add_systems(Update, bevy::window::close_on_esc)
+        .add_systems(Update, close_on_esc)
         // Default plugins
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "ui=trace,bevy_keith=warn,bevy=info".to_string(),
-                    update_subscriber: None,
+                    custom_layer: |_| None,
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
@@ -29,7 +38,7 @@ fn main() {
                     ..default()
                 }),
         )
-        .insert_resource(ClearColor(Color::PURPLE))
+        .insert_resource(ClearColor(PURPLE.into()))
         .add_plugins(KeithPlugin)
         //.add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
@@ -40,7 +49,7 @@ fn main() {
 #[derive(Component)]
 struct MyRes {
     font: Handle<Font>,
-    image: Handle<Image>,
+    //image: Handle<Image>,
 }
 
 fn setup(
@@ -49,83 +58,76 @@ fn setup(
     text_pipeline: Res<KeithTextPipeline>,
 ) {
     let font = asset_server.load("FiraSans-Regular.ttf");
-    let image = asset_server.load("uvdev.png");
+    //let image = asset_server.load("uvdev.png");
+
+    let mut proj = OrthographicProjection::default_2d();
+    // Set viewport origin at bottom left corner (Bevy) and top left corner (Keith).
+    // Keith uses an inverted Y down coordinate system.
+    proj.viewport_origin = Vec2::ZERO;
 
     let mut canvas = Canvas::new(Rect {
         min: Vec2::splat(-400.),
         max: Vec2::splat(100.),
     });
-    canvas.background_color = Some(Color::BEIGE);
-    commands
-        .spawn(Camera2dBundle {
-            projection: OrthographicProjection {
-                // Set viewport origin at bottom left corner (Bevy) and top left corner (Keith).
-                // Keith uses an inverted Y down coordinate system.
-                viewport_origin: Vec2::ZERO,
-                // Scale viewport to match 1:1 the window pixel size.
-                scaling_mode: ScalingMode::WindowSize(1.),
-                ..default()
-            },
-            ..default()
-        })
-        .insert(canvas)
-        .insert(MyRes {
+    canvas.background_color = Some(BEIGE.into());
+    commands.spawn((
+        Camera2d::default(),
+        proj,
+        canvas,
+        MyRes {
             font: font.clone(),
-            image: image.clone(),
-        });
+            //image: image.clone(),
+        },
+    ));
 
     // Display the text pipeline's glyph atlas as a debug visualization
     commands
-        .spawn(SpriteBundle {
-            sprite: Sprite {
-                color: Color::rgba_u8(0, 0, 0, 128),
+        .spawn((
+            Sprite {
+                color: Color::srgba_u8(0, 0, 0, 128),
                 custom_size: Some(Vec2::splat(512.)),
                 ..default()
             },
-            transform: Transform::from_xyz(400., 0., 0.),
-            ..default()
-        })
+            Transform::from_xyz(400., 0., 0.),
+        ))
         .with_children(|p| {
-            p.spawn(SpriteBundle {
-                texture: text_pipeline.atlas_texture_handle.clone(),
-                sprite: Sprite {
-                    custom_size: Some(Vec2::splat(512.)),
-                    ..default()
-                },
+            p.spawn(Sprite {
+                image: text_pipeline.atlas_texture_handle.clone(),
+                custom_size: Some(Vec2::splat(512.)),
                 ..default()
             });
         });
 }
 
-fn draw_menu(
-    ctx: &mut RenderContext,
-    rect: Rect,
-    entries: &[(&str, f32)],
-    font: &Handle<Font>,
-    cursor_pos: Vec2,
-) {
-    // Background
-    let brush = if rect.contains(cursor_pos) {
-        ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7))
-    } else {
-        ctx.solid_brush(Color::rgb(0.6, 0.6, 0.6))
-    };
-    ctx.fill(rect, &brush);
+// fn draw_menu(
+//     ctx: &mut RenderContext,
+//     rect: Rect,
+//     entries: &[(&str, f32)],
+//     font: &Handle<Font>,
+//     cursor_pos: Vec2,
+// ) {
+//     // Background
+//     let brush = if rect.contains(cursor_pos) {
+//         ctx.solid_brush(Color::srgb(0.7, 0.7, 0.7))
+//     } else {
+//         ctx.solid_brush(Color::srgb(0.6, 0.6, 0.6))
+//     };
+//     ctx.fill(rect, &brush);
 
-    // Entries
-    let mut x = 10.;
-    for &(txt, offset) in entries {
-        let text = ctx
-            .new_layout(txt.to_string())
-            .color(Color::BLACK)
-            .font(font.clone())
-            .font_size(16.)
-            .anchor(Anchor::BottomLeft)
-            .build();
-        ctx.draw_text(text, Vec2::new(x, 12.0));
-        x += offset;
-    }
-}
+//     // Entries
+//     let mut x = 10.;
+//     for &(txt, offset) in entries {
+//         let text = ctx
+//             .new_layout(txt.to_string())
+//             .color(Color::BLACK)
+//             .font(font.clone())
+//             .font_size(16.)
+//             .anchor(Anchor::BottomLeft)
+//             .build();
+//         ctx.draw_text(text, Vec2::new(x, 12.0));
+//         x += offset;
+//     }
+// }
 
 fn draw_button(
     ctx: &mut RenderContext,
@@ -138,33 +140,31 @@ fn draw_button(
 ) {
     // Background
     let brush = if rect.contains(cursor_pos) {
-        ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7))
+        ctx.solid_brush(Color::srgb(0.7, 0.7, 0.7))
     } else {
-        ctx.solid_brush(Color::rgb(0.6, 0.6, 0.6))
+        ctx.solid_brush(Color::srgb(0.6, 0.6, 0.6))
     };
     ctx.fill(rect, &brush);
 
     // Outline
-    let brush = ctx.solid_brush(Color::rgb(0.5, 0.5, 0.5));
+    //let brush = ctx.solid_brush(Color::srgb(0.5, 0.5, 0.5));
     //ctx.stroke(rect, &brush, 1.);
 
     // Text
     let text = ctx
         .new_layout(text.to_owned())
-        .color(Color::rgb(0.2, 0.2, 0.2))
+        .color(Color::srgb(0.2, 0.2, 0.2))
         .font(font)
-        .font_size(16.)
+        .font_size(12.)
         .bounds(rect.size())
         .anchor(anchor)
         .alignment(justify)
         .build();
-    let anchor = anchor.as_vec();
-    let anchor = Vec2::new(anchor.x, -anchor.y);
-    let text_pos = anchor * rect.size() + rect.center();
+    let text_pos = anchor.as_keith_vec() * rect.size() + rect.center();
     ctx.draw_text(text, text_pos);
 
     // Text origin
-    let brush = ctx.solid_brush(Color::BLUE);
+    let brush = ctx.solid_brush(BLUE.into());
     ctx.line(text_pos - Vec2::X * 3., text_pos + Vec2::X * 3., &brush, 1.);
     ctx.line(text_pos - Vec2::Y * 3., text_pos + Vec2::Y * 3., &brush, 1.);
 }
@@ -186,10 +186,10 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     .unwrap_or(Vec2::NAN);
     //trace!("cursor_pos={cursor_pos}");
 
-    let rect = Rect {
-        min: Vec2::new(0., 0.),
-        max: Vec2::new(1280., 24.),
-    };
+    // let rect = Rect {
+    //     min: Vec2::new(0., 0.),
+    //     max: Vec2::new(1280., 24.),
+    // };
     // draw_menu(
     //     &mut ctx,
     //     rect,
@@ -207,7 +207,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
             Anchor::BottomRight,
         ],
     ];
-    let size = Vec2::new(100., 32.);
+    let size = Vec2::new(100., 48.);
     // justify
     for k in -1i32..=1i32 {
         // anchor Y
@@ -221,7 +221,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
 
                 let origin = Vec2::new(
                     i as f32 * 110. + 200. + (k + 1) as f32 * 400.,
-                    j as f32 * 50. + 200.,
+                    j as f32 * 80. + 200.,
                 );
                 let anchor = anchors[(j + 1) as usize][(i + 1) as usize];
                 let justify = match k {

@@ -6,7 +6,7 @@ use std::str;
 use bevy::math::{Rect, Vec2};
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
-use bevy::text::TextLayoutInfo;
+use bevy::text::{TextBounds, TextLayoutInfo};
 
 use crate::{
     canvas::{Canvas, LinePrimitive, RectPrimitive, TextPrimitive},
@@ -76,6 +76,17 @@ impl TextStorage for &'static str {
 //     layouts: &'c Vec<TextLayout>,
 // }
 
+// (entity, depth, span, text_font, color)
+//pub type TextSection<'a> = (Entity, usize, &'a str, &'a TextFont, Color);
+#[derive(Debug, Clone)]
+pub struct TextSection {
+    pub entity: Entity,
+    pub depth: usize,
+    pub text: String,
+    pub font: TextFont,
+    pub color: Color,
+}
+
 #[derive(Debug, Clone)]
 pub struct TextLayout {
     /// Unique ID of the text into its owner [`Canvas`].
@@ -87,8 +98,8 @@ pub struct TextLayout {
     pub(crate) anchor: Anchor,
     /// Text justifying. This only affects multiline text.
     pub(crate) justify: JustifyText,
-    /// Text bounds, used for glyph clipping.
-    pub(crate) bounds: Vec2,
+    /// Text bounds, used for glyph clipping / word wrapping.
+    pub(crate) bounds: TextBounds,
     /// Calculated text size based on glyphs alone, updated by
     /// [`process_glyphs()`].
     pub(crate) calculated_size: Vec2,
@@ -104,7 +115,7 @@ impl Default for TextLayout {
             sections: vec![],
             anchor: Anchor::default(),
             justify: JustifyText::Left,
-            bounds: Vec2::ZERO,
+            bounds: TextBounds::UNBOUNDED,
             calculated_size: Vec2::ZERO,
             layout_info: None,
         }
@@ -113,9 +124,10 @@ impl Default for TextLayout {
 
 pub struct TextLayoutBuilder<'c> {
     canvas: &'c mut Canvas,
-    style: TextStyle,
+    font: TextFont,
+    color: Color,
     value: String,
-    bounds: Vec2,
+    bounds: TextBounds,
     anchor: Anchor,
     alignment: JustifyText,
 }
@@ -124,9 +136,10 @@ impl<'c> TextLayoutBuilder<'c> {
     fn new(canvas: &'c mut Canvas, storage: impl TextStorage) -> Self {
         Self {
             canvas,
-            style: TextStyle::default(),
+            font: TextFont::default(),
+            color: Color::BLACK,
             value: storage.as_str().to_owned(),
-            bounds: Vec2::new(f32::MAX, f32::MAX),
+            bounds: TextBounds::UNBOUNDED,
             anchor: Anchor::default(),
             alignment: JustifyText::Left, // Bottom,
         }
@@ -134,13 +147,13 @@ impl<'c> TextLayoutBuilder<'c> {
 
     /// Select the font to render the text with.
     pub fn font(mut self, font: Handle<Font>) -> Self {
-        self.style.font = font;
+        self.font.font = font;
         self
     }
 
     /// Set the font size.
     pub fn font_size(mut self, font_size: f32) -> Self {
-        self.style.font_size = font_size;
+        self.font.font_size = font_size;
         self
     }
 
@@ -148,7 +161,7 @@ impl<'c> TextLayoutBuilder<'c> {
     ///
     /// FIXME - this vs. RenderContext::draw_text()'s color
     pub fn color(mut self, color: Color) -> Self {
-        self.style.color = color;
+        self.color = color;
         self
     }
 
@@ -160,7 +173,7 @@ impl<'c> TextLayoutBuilder<'c> {
     /// FIXME - Currently no clipping for partially visible glyphs, only
     /// completely outside ones are clipped.
     pub fn bounds(mut self, bounds: Vec2) -> Self {
-        self.bounds = bounds;
+        self.bounds = TextBounds::new(bounds.x, bounds.y);
         self
     }
 
@@ -185,8 +198,11 @@ impl<'c> TextLayoutBuilder<'c> {
         let layout = TextLayout {
             id: 0, // assigned in finish_layout()
             sections: vec![TextSection {
-                style: self.style,
-                value: self.value,
+                entity: Entity::PLACEHOLDER,
+                depth: 0,
+                text: self.value.clone(),
+                font: self.font.clone(),
+                color: self.color,
             }],
             anchor: self.anchor,
             justify: self.alignment,
@@ -326,10 +342,7 @@ impl<'c> RenderContext<'c> {
     }
 
     pub fn draw_text(&mut self, text_id: u32, pos: Vec2) {
-        self.canvas.draw(TextPrimitive {
-            id: text_id,
-            rect: Rect { min: pos, max: pos },
-        });
+        self.canvas.draw(TextPrimitive { id: text_id, pos });
     }
 
     pub fn draw_image(&mut self, shape: Rect, image: Handle<Image>, scaling: ImageScaling) {
@@ -338,6 +351,8 @@ impl<'c> RenderContext<'c> {
             color: Color::WHITE,
             image: Some(image.id()),
             image_scaling: scaling,
+            border_width: 0.,
+            border_color: Color::NONE,
             ..Default::default()
         });
     }

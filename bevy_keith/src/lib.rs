@@ -38,6 +38,7 @@ use bevy::{
     render::{
         render_phase::AddRenderCommand,
         render_resource::{Shader, SpecializedRenderPipelines},
+        texture::GpuImage,
         Render, RenderApp, RenderSet,
     },
 };
@@ -58,9 +59,9 @@ use render::{
     DrawPrimitive, ExtractedCanvases, ImageBindGroups, PrimitiveAssetEvents, PrimitiveMeta,
     PrimitivePipeline,
 };
-pub use render_context::RenderContext;
+pub use render_context::{ImageScaling, RenderContext};
 pub use shapes::*;
-pub use text::{CanvasTextId, KeithTextPipeline};
+pub use text::{AnchorEx, CanvasTextId, KeithTextPipeline};
 
 /// Main Keith plugin.
 #[derive(Default)]
@@ -121,6 +122,8 @@ impl Plugin for KeithPlugin {
             .add_systems(
                 PostUpdate,
                 (
+                    bevy::render::view::check_visibility::<With<Canvas>>
+                        .in_set(bevy::render::view::VisibilitySystems::CheckVisibility),
                     canvas::spawn_missing_tiles_components
                         .in_set(KeithSystem::SpawnMissingTilesComponents),
                     canvas::resize_tiles_to_camera_render_target
@@ -135,7 +138,7 @@ impl Plugin for KeithPlugin {
     }
 
     fn finish(&self, app: &mut App) {
-        if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
                 .init_resource::<ImageBindGroups>()
                 .init_resource::<PrimitivePipeline>()
@@ -170,7 +173,7 @@ impl Plugin for KeithPlugin {
                         render::prepare_bind_groups
                             .in_set(RenderSet::PrepareBindGroups)
                             .after(render::queue_primitives)
-                            .after(bevy::render::render_asset::prepare_assets::<Image>),
+                            .after(bevy::render::render_asset::prepare_assets::<GpuImage>),
                     ),
                 );
         };

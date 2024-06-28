@@ -14,15 +14,15 @@ readme = "README.md"
 exclude = ["examples/*.gif", ".github", "release.md"]
 
 [dependencies]
-bevy = { version = "0.13", default-features = false, features = ["bevy_asset", "bevy_core_pipeline", "bevy_render", "bevy_text", "bevy_sprite"] }
+bevy = { version = "0.15", default-features = false, features = ["bevy_asset", "bevy_core_pipeline", "bevy_render", "bevy_text", "bevy_sprite", "bevy_window", "png"] }
 bytemuck = { version = "1.13", features = ["derive"] }
 bitflags = "2.3"
 copyless = "0.1.5"
-ab_glyph = "0.2"
-glyph_brush_layout = "0.2"
+smallvec = "1.13"
+cosmic-text = { version = "0.12", features = ["shape-run-cache"] }
 
 #[dev-dependencies]
-bevy-inspector-egui = "0.24"
+bevy-inspector-egui = "0.28"
 
 [[example]]
 name = "quad"
@@ -38,4 +38,8 @@ required-features = [ "bevy/bevy_winit", "bevy/png" ]
 
 [[example]]
 name = "alpha"
+
+[[example]]
+name = "01-game-menu"
+path = "examples/bevy-10-challenges/01-game-menu.rs"
 required-features = [ "bevy/bevy_winit", "bevy/png" ]

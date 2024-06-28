@@ -1,18 +1,20 @@
 //! Test for various alpha blending cases.
 
-use bevy::render::camera::ScalingMode;
 use bevy::{log::LogPlugin, math::Rect, prelude::*, window::PrimaryWindow};
 use bevy_keith::*;
 
+mod utils;
+use utils::*;
+
 fn main() {
     App::new()
-        .add_systems(Update, bevy::window::close_on_esc)
+        .add_systems(Update, close_on_esc)
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "ui=trace,bevy_keith=warn,bevy=info".to_string(),
-                    update_subscriber: None,
+                    custom_layer: |_| None,
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
@@ -44,18 +46,14 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         max: Vec2::splat(100.),
     });
     canvas.background_color = None;
+    
+    let mut proj = OrthographicProjection::default_2d();
+    // Set viewport origin at bottom left corner (Bevy) and top left corner (Keith).
+    // Keith uses an inverted Y down coordinate system.
+    proj.viewport_origin = Vec2::ZERO;
+
     commands
-        .spawn(Camera2dBundle {
-            projection: OrthographicProjection {
-                // Set viewport origin at bottom left corner (Bevy) and top left corner (Keith).
-                // Keith uses an inverted Y down coordinate system.
-                viewport_origin: Vec2::ZERO,
-                // Scale viewport to match 1:1 the window pixel size.
-                scaling_mode: ScalingMode::WindowSize(1.),
-                ..default()
-            },
-            ..default()
-        })
+        .spawn((Camera2d::default(), proj))
         .insert(canvas)
         .insert(MyRes {
             font: font.clone(),
@@ -80,17 +78,24 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     .unwrap_or(Vec2::NAN);
     //trace!("cursor_pos={cursor_pos}");
 
-    let red = ctx.solid_brush(Color::rgba_linear(1.0, 0.0, 0.0, 1.0));
-    let green = ctx.solid_brush(Color::rgba_linear(0.0, 1.0, 0.0, 1.0));
-    let red50 = ctx.solid_brush(Color::rgba_linear(1.0, 0.0, 0.0, 0.5));
-    let green50 = ctx.solid_brush(Color::rgba_linear(0.0, 1.0, 0.0, 0.5));
+    let red = ctx.solid_brush(Color::linear_rgba(1.0, 0.0, 0.0, 1.0));
+    let green = ctx.solid_brush(Color::linear_rgba(0.0, 1.0, 0.0, 1.0));
+    let red50 = ctx.solid_brush(Color::linear_rgba(1.0, 0.0, 0.0, 0.5));
+    let green50 = ctx.solid_brush(Color::linear_rgba(0.0, 1.0, 0.0, 0.5));
 
     let img_rect = Rect::from_center_size(Vec2::splat(10.), Vec2::splat(5.));
-    let text = ctx
-        .new_layout("text")
-        .color(Color::rgb(1., 1., 1.))
+    let text_under = ctx
+        .new_layout("under")
+        .color(Color::srgb(1., 1., 1.))
         .font(my_res.font.clone())
-        .font_size(16.)
+        .font_size(12.)
+        .alignment(JustifyText::Center)
+        .build();
+    let text_over = ctx
+        .new_layout("over")
+        .color(Color::srgb(1., 1., 1.))
+        .font(my_res.font.clone())
+        .font_size(12.)
         .alignment(JustifyText::Center)
         .build();
 
@@ -144,61 +149,61 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
 
     p.y += 200.;
     ctx.fill(Rect::from_center_size(p, Vec2::splat(100.)), &red);
-    ctx.draw_text(text, p - Vec2::Y * 30.);
+    ctx.draw_text(text_under, p - Vec2::Y * 30.);
     ctx.draw_image(img_rect, my_res.image.clone(), ImageScaling::default());
     ctx.fill(
         Rect::from_center_size(p + Vec2::splat(50.), Vec2::splat(100.)),
         &red,
     );
-    ctx.draw_text(text, p + delta);
+    ctx.draw_text(text_over, p + delta);
 
     p.x += 200.;
     ctx.fill(Rect::from_center_size(p, Vec2::splat(100.)), &red);
-    ctx.draw_text(text, p - Vec2::Y * 30.);
+    ctx.draw_text(text_under, p - Vec2::Y * 30.);
     ctx.draw_image(img_rect, my_res.image.clone(), ImageScaling::default());
     ctx.fill(
         Rect::from_center_size(p + Vec2::splat(50.), Vec2::splat(100.)),
         &red50,
     );
-    ctx.draw_text(text, p + delta);
+    ctx.draw_text(text_over, p + delta);
 
     p.x += 200.;
     ctx.fill(Rect::from_center_size(p, Vec2::splat(100.)), &red50);
-    ctx.draw_text(text, p - Vec2::Y * 30.);
+    ctx.draw_text(text_under, p - Vec2::Y * 30.);
     ctx.draw_image(img_rect, my_res.image.clone(), ImageScaling::default());
     ctx.fill(
         Rect::from_center_size(p + Vec2::splat(50.), Vec2::splat(100.)),
         &red50,
     );
-    ctx.draw_text(text, p + delta);
+    ctx.draw_text(text_over, p + delta);
 
     p.x += 200.;
     ctx.fill(Rect::from_center_size(p, Vec2::splat(100.)), &red);
-    ctx.draw_text(text, p - Vec2::Y * 30.);
+    ctx.draw_text(text_under, p - Vec2::Y * 30.);
     ctx.draw_image(img_rect, my_res.image.clone(), ImageScaling::default());
     ctx.fill(
         Rect::from_center_size(p + Vec2::splat(50.), Vec2::splat(100.)),
         &green,
     );
-    ctx.draw_text(text, p + delta);
+    ctx.draw_text(text_over, p + delta);
 
     p.x += 200.;
     ctx.fill(Rect::from_center_size(p, Vec2::splat(100.)), &red);
-    ctx.draw_text(text, p - Vec2::Y * 30.);
+    ctx.draw_text(text_under, p - Vec2::Y * 30.);
     ctx.draw_image(img_rect, my_res.image.clone(), ImageScaling::default());
     ctx.fill(
         Rect::from_center_size(p + Vec2::splat(50.), Vec2::splat(100.)),
         &green50,
     );
-    ctx.draw_text(text, p + delta);
+    ctx.draw_text(text_over, p + delta);
 
     p.x += 200.;
     ctx.fill(Rect::from_center_size(p, Vec2::splat(100.)), &red50);
-    ctx.draw_text(text, p - Vec2::Y * 30.);
+    ctx.draw_text(text_under, p - Vec2::Y * 30.);
     ctx.draw_image(img_rect, my_res.image.clone(), ImageScaling::default());
     ctx.fill(
         Rect::from_center_size(p + Vec2::splat(50.), Vec2::splat(100.)),
         &green50,
     );
-    ctx.draw_text(text, p + delta);
+    ctx.draw_text(text_over, p + delta);
 }

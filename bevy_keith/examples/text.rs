@@ -1,23 +1,26 @@
 //! Basic quad and text drawing inside a `Canvas`.
 
 use bevy::{
-    log::LogPlugin, math::Rect, prelude::*, sprite::Anchor, text::Text2dBounds,
+    color::palettes::css::*, log::LogPlugin, math::Rect, prelude::*, sprite::Anchor,
     window::PrimaryWindow,
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_keith::*;
 
+mod utils;
+use utils::*;
+
 fn main() {
     App::new()
         // Helper to exit with ESC key
-        .add_systems(Update, bevy::window::close_on_esc)
+        .add_systems(Update, close_on_esc)
         // Default plugins
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
-                    filter: "text=trace,bevy_keith=info".to_string(),
-                    update_subscriber: None,
+                    filter: "text=trace,bevy_keith=warn".to_string(),
+                    custom_layer: |_| None,
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
@@ -27,7 +30,7 @@ fn main() {
                     ..default()
                 }),
         )
-        .insert_resource(ClearColor(Color::DARK_GRAY))
+        .insert_resource(ClearColor(DARK_GRAY.into()))
         .add_plugins(KeithPlugin)
         .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
@@ -47,11 +50,8 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         min: Vec2::splat(-400.),
         max: Vec2::splat(100.),
     });
-    canvas.background_color = Some(Color::BEIGE);
-    commands
-        .spawn(Camera2dBundle::default())
-        .insert(canvas)
-        .insert(MyRes { font: font.clone() });
+    canvas.background_color = Some(BEIGE.into());
+    commands.spawn((Camera2d::default(), canvas, MyRes { font: font.clone() }));
 
     // commands.spawn(Text2dBundle {
     //     text: Text::from_section(
@@ -80,20 +80,20 @@ fn draw_boxed_text(
 ) {
     // Background
     let brush = if rect.contains(cursor_pos) {
-        ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7))
+        ctx.solid_brush(Color::srgb(0.7, 0.7, 0.7))
     } else {
-        ctx.solid_brush(Color::rgb(0.6, 0.6, 0.6))
+        ctx.solid_brush(Color::srgb(0.6, 0.6, 0.6))
     };
     ctx.fill(rect, &brush);
 
     // Outline
-    let brush = ctx.solid_brush(Color::rgb(0.5, 0.5, 0.5));
+    let brush = ctx.solid_brush(Color::srgb(0.5, 0.5, 0.5));
     ctx.stroke(rect, &brush, 1.);
 
     // Text
     let text = ctx
         .new_layout(text.to_owned())
-        .color(Color::rgb(0.2, 0.2, 0.2))
+        .color(Color::srgb(0.2, 0.2, 0.2))
         .font(font)
         .font_size(16.)
         .bounds(rect.size())
@@ -109,22 +109,25 @@ fn draw_anchored_text(
     text: &str,
     font: Handle<Font>,
     anchor: Anchor,
+    cursor_pos: Vec2,
 ) {
-    let size = Vec2::new(120., 40.);
+    let size = Vec2::new(180., 60.);
 
     // Background
-    let brush = ctx.solid_brush(Color::rgba(0.6, 0.6, 0.6, 0.2));
-    ctx.fill(
-        Rect::from_center_size(pos - anchor.as_vec() * size, size),
-        &brush,
-    );
+    let rect = Rect::from_center_size(pos - anchor.as_keith_vec() * size, size);
+    let brush = if rect.contains(cursor_pos) {
+        ctx.solid_brush(Color::srgb(0.7, 0.7, 0.3))
+    } else {
+        ctx.solid_brush(Color::srgb(0.6, 0.6, 0.2))
+    };
+    ctx.fill(rect, &brush);
 
     // Text
     let text = ctx
         .new_layout(text.to_owned())
-        .color(Color::rgb(0.1, 0.1, 0.1))
+        .color(Color::srgb(0.1, 0.1, 0.1))
         .font(font)
-        .font_size(16.)
+        .font_size(12.)
         .bounds(size)
         .anchor(anchor)
         .alignment(JustifyText::Left)
@@ -132,7 +135,7 @@ fn draw_anchored_text(
     ctx.draw_text(text, pos);
 
     // Anchor
-    let brush = ctx.solid_brush(Color::RED);
+    let brush = ctx.solid_brush(RED.into());
     ctx.line(pos - Vec2::X * 3., pos + Vec2::X * 3., &brush, 1.);
     ctx.line(pos - Vec2::Y * 3., pos + Vec2::Y * 3., &brush, 1.);
 }
@@ -147,7 +150,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
         window
             .cursor_position()
             // FIXME - cheap window-to-canvas hard-coded conversion
-            .map(|v| Vec2::new(v.x - 1280. / 2., 720. / 2. - v.y))
+            .map(|v| v - Vec2::new(1280., 720.) / 2.)
     } else {
         None
     }
@@ -155,55 +158,28 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
 
     // Anchor
     for (anchor, anchor_name) in [
-        // (Anchor::TopLeft, "TopLeft"),
-        // (Anchor::TopCenter, "TopCenter"),
-        // (Anchor::TopRight, "TopRight"),
-        // (Anchor::CenterLeft, "CenterLeft"),
-        // (Anchor::Center, "Center"),
-        // (Anchor::CenterRight, "CenterRight"),
-        // (Anchor::BottomLeft, "BottomLeft"),
-        // (Anchor::BottomCenter, "BottomCenter"),
-        // (Anchor::BottomRight, "BottomRight"),
-        (
-            Anchor::TopLeft,
-            "The quick brown fox jumps over the lazy dog.",
-        ),
-        (
-            Anchor::TopCenter,
-            "The quick brown fox jumps over the lazy dog.",
-        ),
-        (
-            Anchor::TopRight,
-            "The quick brown fox jumps over the lazy dog.",
-        ),
-        (
-            Anchor::CenterLeft,
-            "The quick brown fox jumps over the lazy dog.",
-        ),
-        (
-            Anchor::Center,
-            "The quick brown fox jumps over the lazy dog.",
-        ),
-        (
-            Anchor::CenterRight,
-            "The quick brown fox jumps over the lazy dog.",
-        ),
-        (
-            Anchor::BottomLeft,
-            "The quick brown fox jumps over the lazy dog.",
-        ),
-        (
-            Anchor::BottomCenter,
-            "The quick brown fox jumps over the lazy dog.",
-        ),
-        (
-            Anchor::BottomRight,
-            "The quick brown fox jumps over the lazy dog.",
-        ),
+        (Anchor::TopLeft, "TopLeft"),
+        (Anchor::TopCenter, "TopCenter"),
+        (Anchor::TopRight, "TopRight"),
+        (Anchor::CenterLeft, "CenterLeft"),
+        (Anchor::Center, "Center"),
+        (Anchor::CenterRight, "CenterRight"),
+        (Anchor::BottomLeft, "BottomLeft"),
+        (Anchor::BottomCenter, "BottomCenter"),
+        (Anchor::BottomRight, "BottomRight"),
     ] {
-        // let pos = anchor.as_vec() * Vec2::new(280., 80.);
-        let pos = anchor.as_vec() * Vec2::new(400., 200.);
-        draw_anchored_text(&mut ctx, pos, anchor_name, my_res.font.clone(), anchor);
+        let pos = anchor.as_keith_vec() * Vec2::new(600., 200.);
+        draw_anchored_text(
+            &mut ctx,
+            pos,
+            &format!(
+                "{}: The quick brown fox jumps over the lazy dog.",
+                anchor_name
+            ),
+            my_res.font.clone(),
+            anchor,
+            cursor_pos,
+        );
     }
 
     // Layout

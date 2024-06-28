@@ -26,16 +26,18 @@ use std::mem::MaybeUninit;
 
 use bevy::{
     asset::{AssetId, Assets, Handle},
+    color::Color,
     ecs::{
         component::Component,
         entity::Entity,
         query::{With, Without},
         system::{Commands, Query, ResMut},
     },
+    image::Image,
     log::trace,
     math::{bounding::Aabb2d, Rect, UVec2, Vec2, Vec3},
     prelude::*,
-    render::{camera::Camera, color::Color, texture::Image},
+    render::{camera::Camera},
     sprite::TextureAtlasLayout,
     utils::default,
     window::PrimaryWindow,
@@ -254,12 +256,12 @@ impl LinePrimitive {
         prim[1].write((self.start.y + canvas_translation.y) * scale_factor);
         prim[2].write((self.end.x + canvas_translation.x) * scale_factor);
         prim[3].write((self.end.y + canvas_translation.y) * scale_factor);
-        prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
+        prim[4].write(bytemuck::cast(self.color.to_linear().as_u32()));
         prim[5].write(self.thickness * scale_factor);
         if self.is_bordered() {
             assert_eq!(8, prim.len());
             prim[6].write(self.border_width * scale_factor);
-            prim[7].write(bytemuck::cast(self.border_color.as_linear_rgba_u32()));
+            prim[7].write(bytemuck::cast(self.border_color.to_linear().as_u32()));
         } else {
             assert_eq!(6, prim.len());
         }
@@ -364,7 +366,7 @@ impl RectPrimitive {
         prim[2].write(half_size.x);
         prim[3].write(half_size.y);
         prim[4].write(self.radius * scale_factor);
-        prim[5].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
+        prim[5].write(bytemuck::cast(self.color.to_linear().as_u32()));
         let mut idx = 6;
         if self.is_textured() {
             prim[idx + 0].write(0.5);
@@ -375,7 +377,7 @@ impl RectPrimitive {
         }
         if self.is_bordered() {
             prim[idx + 0].write(self.border_width * scale_factor);
-            prim[idx + 1].write(bytemuck::cast(self.border_color.as_linear_rgba_u32()));
+            prim[idx + 1].write(bytemuck::cast(self.border_color.to_linear().as_u32()));
         }
     }
 }
@@ -392,8 +394,12 @@ impl RectPrimitive {
 pub struct TextPrimitive {
     /// Unique ID of the text inside its owner [`Canvas`].
     pub id: u32,
-    /// TODO - Vec2 instead?
-    pub rect: Rect,
+    /// Text position (starting pen position), in virtual pixels (Bevy
+    /// coordinates). This is the position of the text anchor point, as
+    /// defined by [`Anchor`].
+    ///
+    /// [`Anchor`]: bevy::sprite::Anchor
+    pub pos: Vec2,
 }
 
 impl TextPrimitive {
@@ -405,13 +411,13 @@ impl TextPrimitive {
     pub fn aabb(&self, canvas: &ExtractedCanvas) -> Aabb2d {
         let text = &canvas.texts[self.id as usize];
         let mut aabb = Aabb2d {
-            min: self.rect.min,
-            max: self.rect.max,
+            min: self.pos,
+            max: self.pos,
         };
         trace!("Text #{:?} aabb={:?}", self.id, aabb);
         for glyph in &text.glyphs {
-            aabb.min = aabb.min.min(self.rect.min + glyph.offset);
-            aabb.max = aabb.max.max(self.rect.min + glyph.offset + glyph.size);
+            aabb.min = aabb.min.min(self.pos + glyph.offset);
+            aabb.max = aabb.max.max(self.pos + glyph.offset + glyph.size);
             trace!(
                 "  > add glyph offset={:?} size={:?}, new aabb {:?}",
                 glyph.offset,
@@ -452,8 +458,8 @@ impl TextPrimitive {
         let mut ip = 0;
         //let inv_scale_factor = 1. / scale_factor;
         for i in 0..glyph_count {
-            let x = glyphs[i].offset.x + (self.rect.min.x + canvas_translation.x) * scale_factor;
-            let y = glyphs[i].offset.y + (self.rect.min.y + canvas_translation.y) * scale_factor;
+            let x = glyphs[i].offset.x + (self.pos.x + canvas_translation.x) * scale_factor;
+            let y = glyphs[i].offset.y + (self.pos.y + canvas_translation.y) * scale_factor;
             let hw = glyphs[i].size.x / 2.0;
             let hh = glyphs[i].size.y / 2.0;
 
@@ -572,7 +578,7 @@ impl QuarterPiePrimitive {
         prim[1].write((self.origin.y + canvas_translation.y) * scale_factor);
         prim[2].write(signed_radii.x * scale_factor);
         prim[3].write(signed_radii.y * scale_factor);
-        prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
+        prim[4].write(bytemuck::cast(self.color.to_linear().as_u32()));
     }
 }
 
@@ -919,6 +925,10 @@ pub fn spawn_missing_tiles_components(
 
         let config = config.copied().unwrap_or_default();
         commands.entity(entity).insert((Tiles::default(), config));
+        trace!(
+            "Spawned missing Tiles component on entity {:?} with a Canvas and active Camera",
+            entity
+        );
     }
 }
 
@@ -943,7 +953,7 @@ pub fn allocate_atlas_layouts(
 ) {
     for mut canvas in query.iter_mut() {
         // FIXME
-        let size = Vec2::splat(1024.0);
+        let size = UVec2::splat(1024);
 
         // FIXME - also check for resize...
         if canvas.atlas_layout == Handle::<TextureAtlasLayout>::default() {

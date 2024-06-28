@@ -2,7 +2,7 @@ use std::{fmt::Write as _, num::NonZeroU64};
 
 use bevy::{
     asset::{Asset, AssetEvent, AssetId},
-    core_pipeline::core_2d::Transparent2d,
+    core_pipeline::core_2d::{Transparent2d, CORE_2D_DEPTH_FORMAT},
     ecs::{
         component::Component,
         entity::Entity,
@@ -13,35 +13,37 @@ use bevy::{
         },
         world::{FromWorld, World},
     },
-    math::bounding::Aabb2d,
+    image::Image,
+    math::{bounding::Aabb2d, FloatOrd},
     prelude::*,
     render::{
         render_asset::RenderAssets,
         render_phase::{
-            DrawFunctions, PhaseItem, RenderCommand, RenderCommandResult, RenderPhase,
-            SetItemPipeline, TrackedRenderPass,
+            DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
+            SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
             BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutEntry, BindingResource,
             BindingType, BlendState, Buffer, BufferBinding, BufferBindingType,
             BufferInitDescriptor, BufferSize, BufferUsages, ColorTargetState, ColorWrites,
-            FragmentState, FrontFace, MultisampleState, PipelineCache, PolygonMode, PrimitiveState,
-            PrimitiveTopology, RenderPipelineDescriptor, SamplerBindingType, ShaderStages,
-            ShaderType, SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat,
-            TextureSampleType, TextureViewDimension, VertexState,
+            CompareFunction, DepthBiasState, DepthStencilState, FragmentState, FrontFace,
+            MultisampleState, PipelineCache, PolygonMode, PrimitiveState, PrimitiveTopology,
+            RenderPipelineDescriptor, SamplerBindingType, ShaderStages, ShaderType,
+            SpecializedRenderPipeline, SpecializedRenderPipelines, StencilFaceState, StencilState,
+            TextureFormat, TextureSampleType, TextureViewDimension, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
-        texture::{BevyDefault, FallbackImage, Image},
-        view::{Msaa, ViewUniform, ViewUniformOffset, ViewUniforms},
+        texture::{FallbackImage, GpuImage},
+        view::{ExtractedView, Msaa, RenderLayers, ViewUniform, ViewUniformOffset, ViewUniforms},
         Extract,
     },
-    utils::{tracing::enabled, FloatOrd, HashMap},
+    utils::{tracing::enabled, HashMap},
     window::PrimaryWindow,
 };
 
 use crate::{
     canvas::{Canvas, OffsetAndCount, PackedPrimitiveIndex, Primitive, PrimitiveInfo, Tiles},
-    text::CanvasTextId,
+    text::{AnchorEx as _, CanvasTextId},
     PRIMITIVE_SHADER_HANDLE,
 };
 
@@ -93,7 +95,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveBufferBindGr
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let Some(primitive_batch) = primitive_batch else {
-            return RenderCommandResult::Failure;
+            return RenderCommandResult::Failure("Empty primitive batch");
         };
         trace!(
             "SetPrimitiveBufferBindGroup: I={} canvas_entity={:?} bg={:?}",
@@ -107,7 +109,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveBufferBindGr
             RenderCommandResult::Success
         } else {
             trace!("SetPrimitiveBufferBindGroup: FAILURE (missing bind group)");
-            RenderCommandResult::Failure
+            RenderCommandResult::Failure("Missing bind group for primitive batch")
         }
     }
 }
@@ -127,7 +129,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveTextureBindG
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let Some(primitive_batch) = primitive_batch else {
-            return RenderCommandResult::Failure;
+            return RenderCommandResult::Failure("Empty primitive batch");
         };
         let image_bind_groups = image_bind_groups.into_inner();
         if primitive_batch.image_handle_id != AssetId::<Image>::invalid() {
@@ -150,7 +152,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveTextureBindG
                 .get(&primitive_batch.image_handle_id)
             else {
                 error!("Failed to find IBG!");
-                return RenderCommandResult::Failure;
+                return RenderCommandResult::Failure("Missing image bind group");
             };
             pass.set_bind_group(I, ibg, &[]);
         } else if let Some(ibg) = image_bind_groups.fallback.as_ref() {
@@ -158,7 +160,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPrimitiveTextureBindG
             pass.set_bind_group(I, ibg, &[]);
         } else {
             // We can't use this shader without a valid bind group
-            return RenderCommandResult::Failure;
+            return RenderCommandResult::Failure("Missing fallback image bind group");
         }
         RenderCommandResult::Success
     }
@@ -306,7 +308,6 @@ pub struct PrimitivePipeline {
 
 impl FromWorld for PrimitivePipeline {
     fn from_world(world: &mut World) -> Self {
-        let world = world.cell();
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
         let view_layout = render_device.create_bind_group_layout(
@@ -450,7 +451,22 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
                 topology: PrimitiveTopology::TriangleList,
                 strip_index_format: None,
             },
-            depth_stencil: None,
+            depth_stencil: Some(DepthStencilState {
+                format: CORE_2D_DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: CompareFunction::GreaterEqual,
+                stencil: StencilState {
+                    front: StencilFaceState::IGNORE,
+                    back: StencilFaceState::IGNORE,
+                    read_mask: 0,
+                    write_mask: 0,
+                },
+                bias: DepthBiasState {
+                    constant: 0,
+                    slope_scale: 0.0,
+                    clamp: 0.0,
+                },
+            }),
             multisample: MultisampleState {
                 count: key.msaa_samples(),
                 mask: !0,
@@ -458,6 +474,7 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
             },
             label: Some("keith:primitive_pipeline".into()),
             push_constant_ranges: vec![],
+            zero_initialize_workgroup_memory: false,
         }
     }
 }
@@ -683,13 +700,15 @@ pub(crate) struct ExtractedGlyph {
 /// entity to dynamically control the canvas visibility. By default if absent
 /// the canvas is assumed visible.
 pub(crate) fn extract_primitives(
+    mut commands: Commands,
     mut extracted_canvases: ResMut<ExtractedCanvases>,
+    batches: Query<Entity, With<PrimitiveBatch>>,
     texture_atlases: Extract<Res<Assets<TextureAtlasLayout>>>,
     q_window: Extract<Query<&Window, With<PrimaryWindow>>>,
     canvas_query: Extract<
         Query<(
             Entity,
-            Option<&ViewVisibility>,
+            //Option<&ViewVisibility>,
             &Camera,
             &OrthographicProjection,
             &Canvas,
@@ -699,6 +718,11 @@ pub(crate) fn extract_primitives(
     >,
 ) {
     trace!("extract_primitives");
+
+    // Destroy all batches from previous frame
+    for entity in &batches {
+        commands.entity(entity).despawn_recursive();
+    }
 
     // TODO - handle multi-window
     let Ok(primary_window) = q_window.get_single() else {
@@ -711,17 +735,23 @@ pub(crate) fn extract_primitives(
     let extracted_canvases = &mut extracted_canvases.canvases;
     extracted_canvases.clear();
 
-    for (entity, maybe_computed_visibility, camera, proj, canvas, transform, tiles) in
+    trace!(
+        "Looping on {} entities with a Canvas to extract them...",
+        canvas_query.iter().len()
+    );
+    for (entity, /* maybe_computed_visibility, */ camera, proj, canvas, transform, tiles) in
         canvas_query.iter()
     {
         // Skip hidden canvases. If no ComputedVisibility component is present, assume
         // visible.
-        if !maybe_computed_visibility.map_or(true, |cvis| cvis.get()) {
-            continue;
-        }
+        // if !maybe_computed_visibility.map_or(true, |cvis| cvis.get()) {
+        //     trace!("-> Skipping hidden Canvas (ViewVisibility=hidden)");
+        //     continue;
+        // }
 
         // Get screen size of camera
         let Some(screen_size) = camera.physical_viewport_size() else {
+            trace!("-> Skipping void Canvas (cannot retrieve physical viewport size)");
             continue;
         };
 
@@ -756,22 +786,30 @@ pub(crate) fn extract_primitives(
             };
 
             trace!(
-                "-> {} glyphs, scale_factor={}",
+                "-> {} glyphs, scale_factor={}, anchor={:?}",
                 text_layout_info.glyphs.len(),
-                scale_factor
+                scale_factor,
+                text.anchor,
             );
 
-            let mut extracted_glyphs = vec![];
+            // Offset the text glyphs based on the text anchor. The default is BottomLeft
+            // which produces no offset. Conversely, TopRight produces a full (100%,100%)
+            // offset relative to the text size.
+            let text_anchor = -(text.anchor.as_keith_vec() + 0.5);
+            let alignment_translation = text_layout_info.size * text_anchor;
+
+            // Extract the individual glyphs of this text
+            let mut extracted_glyphs = Vec::with_capacity(text_layout_info.glyphs.len());
             for text_glyph in &text_layout_info.glyphs {
-                let color = text.sections[text_glyph.section_index]
-                    .style
+                let color = text.sections[text_glyph.span_index]
                     .color
-                    .as_linear_rgba_u32();
+                    .to_linear()
+                    .as_u32();
                 let atlas_layout = texture_atlases
                     .get(&text_glyph.atlas_info.texture_atlas)
                     .unwrap();
                 let handle = text_glyph.atlas_info.texture.clone_weak();
-                let index = text_glyph.atlas_info.glyph_index as usize;
+                let index = text_glyph.atlas_info.location.glyph_index as usize;
                 let uv_rect = atlas_layout.textures[index];
 
                 trace!(
@@ -784,11 +822,11 @@ pub(crate) fn extract_primitives(
                 );
 
                 extracted_glyphs.push(ExtractedGlyph {
-                    offset: text_glyph.position,
+                    offset: text_glyph.position + alignment_translation,
                     size: text_glyph.size,
                     color,
                     handle_id: handle.id(),
-                    uv_rect,
+                    uv_rect: Rect::from_corners(uv_rect.min.as_vec2(), uv_rect.max.as_vec2()),
                 });
             }
 
@@ -865,9 +903,8 @@ impl<'a> Iterator for SubPrimIter<'a> {
                         // The AABB returned is in logical coordinates, but the text internally is
                         // always in physical coordinates.
                         let aabb = Aabb2d {
-                            min: text.rect.min + glyph.offset * self.inv_scale_factor,
-                            max: text.rect.min
-                                + (glyph.offset + glyph.size) * self.inv_scale_factor,
+                            min: text.pos + glyph.offset * self.inv_scale_factor,
+                            max: text.pos + (glyph.offset + glyph.size) * self.inv_scale_factor,
                         };
                         self.index += 1;
                         Some((image_handle_id, aabb))
@@ -1170,57 +1207,69 @@ pub fn queue_primitives(
     primitive_pipeline: Res<PrimitivePipeline>,
     mut pipelines: ResMut<SpecializedRenderPipelines<PrimitivePipeline>>,
     mut pipeline_cache: ResMut<PipelineCache>,
-    msaa: Res<Msaa>,
     extracted_canvases: Res<ExtractedCanvases>,
-    mut views: Query<&mut RenderPhase<Transparent2d>>,
+    mut transparent_render_phases: ResMut<ViewSortedRenderPhases<Transparent2d>>,
+    mut views: Query<(Entity, &ExtractedView, &Msaa, Option<&RenderLayers>)>,
     batches: Query<(Entity, &PrimitiveBatch)>,
 ) {
     trace!("queue_primitives: {} batches", batches.iter().len());
 
-    // TODO - per view culling?! (via VisibleEntities)
-    trace!("Specializing pipeline(s)...");
     let draw_primitives_function = draw_functions.read().get_id::<DrawPrimitive>().unwrap();
-    let key = PrimitivePipelineKey::from_msaa_samples(msaa.samples());
-    let primitive_pipeline = pipelines.specialize(&mut pipeline_cache, &primitive_pipeline, key);
-    trace!("primitive_pipeline={:?}", primitive_pipeline,);
 
-    trace!("Looping on batches...");
-    for (batch_entity, batch) in batches.iter() {
-        trace!(
-            "batch ent={:?} image={:?}",
-            batch_entity,
-            batch.image_handle_id
-        );
-        if batch.is_empty() {
-            // shouldn't happen
+    // TODO - per view culling?! (via VisibleEntities)
+    trace!("Looping on views...");
+    for (view_entity, _view, msaa, _render_layers) in &mut views {
+        trace!("View entity {:?}: msaa={}", view_entity, msaa.samples());
+        let Some(transparent_phase) = transparent_render_phases.get_mut(&view_entity) else {
             continue;
-        }
+        };
+        //let render_layers = render_layers.unwrap_or_default();
 
-        let canvas_entity = batch.canvas_entity;
-
-        let is_textured = batch.image_handle_id != AssetId::<Image>::invalid();
-        trace!("  is_textured={}", is_textured);
-
-        let extracted_canvas =
-            if let Some(extracted_canvas) = extracted_canvases.canvases.get(&canvas_entity) {
-                extracted_canvas
-            } else {
-                continue;
-            };
+        trace!("Specializing pipeline(s)...");
+        let key = PrimitivePipelineKey::from_msaa_samples(msaa.samples());
+        let primitive_pipeline =
+            pipelines.specialize(&mut pipeline_cache, &primitive_pipeline, key);
+        trace!("primitive_pipeline={:?}", primitive_pipeline,);
 
         trace!(
-            "CanvasMeta: canvas_entity={:?} batch_entity={:?} textured={}",
-            canvas_entity,
-            batch_entity,
-            is_textured,
+            "Looping on {} batches to queue for draw...",
+            batches.iter().len()
         );
-
-        let sort_key = FloatOrd(extracted_canvas.transform.translation().z);
-
-        // FIXME - Use VisibleEntities to optimize per-view
-        for mut transparent_phase in views.iter_mut() {
+        for (batch_entity, batch) in batches.iter() {
             trace!(
-                "Add Transparent2d entity={:?} image={:?} pipeline={:?} (sort={:?})",
+                "batch ent={:?} image={:?}",
+                batch_entity,
+                batch.image_handle_id
+            );
+            if batch.is_empty() {
+                // shouldn't happen
+                continue;
+            }
+
+            let canvas_entity = batch.canvas_entity;
+
+            let is_textured = batch.image_handle_id != AssetId::<Image>::invalid();
+            trace!("  is_textured={}", is_textured);
+
+            let extracted_canvas =
+                if let Some(extracted_canvas) = extracted_canvases.canvases.get(&canvas_entity) {
+                    extracted_canvas
+                } else {
+                    continue;
+                };
+
+            trace!(
+                "CanvasMeta: canvas_entity={:?} batch_entity={:?} textured={}",
+                canvas_entity,
+                batch_entity,
+                is_textured,
+            );
+
+            let sort_key = FloatOrd(extracted_canvas.transform.translation().z);
+
+            // FIXME - Use VisibleEntities to optimize per-view
+            trace!(
+                "Add Transparent2d batch_entity={:?} image_id={:?} pipeline={:?} (sort={:?})",
                 batch_entity,
                 batch.image_handle_id,
                 primitive_pipeline,
@@ -1229,12 +1278,12 @@ pub fn queue_primitives(
             transparent_phase.add(Transparent2d {
                 draw_function: draw_primitives_function,
                 pipeline: primitive_pipeline,
-                entity: batch_entity,
+                entity: (batch_entity, Entity::PLACEHOLDER.into()),
                 sort_key,
                 // This is batching multiple items into a single draw call, which is not a feature
                 // of bevy_render we currently use
                 batch_range: 0..1,
-                dynamic_offset: None,
+                extra_index: PhaseItemExtraIndex::NONE,
             });
         }
     }
@@ -1246,7 +1295,7 @@ pub fn prepare_bind_groups(
     primitive_pipeline: Res<PrimitivePipeline>,
     mut batches: Query<(Entity, &mut PrimitiveBatch)>,
     extracted_canvases: Res<ExtractedCanvases>,
-    gpu_images: Res<RenderAssets<Image>>,
+    gpu_images: Res<RenderAssets<GpuImage>>,
     fallback_images: Res<FallbackImage>,
     mut primitive_meta: ResMut<PrimitiveMeta>,
     mut image_bind_groups: ResMut<ImageBindGroups>,
@@ -1288,7 +1337,10 @@ pub fn prepare_bind_groups(
         }],
     ));
 
-    trace!("Looping on {} batches...", batches.iter().len());
+    trace!(
+        "Looping on {} batches to prepare bind groups...",
+        batches.iter().len()
+    );
     for (batch_entity, mut batch) in batches.iter_mut() {
         trace!(
             "batch ent={:?} image={:?}",

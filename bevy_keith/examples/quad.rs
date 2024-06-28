@@ -2,23 +2,29 @@
 
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::diagnostic::LogDiagnosticsPlugin;
-use bevy::{log::LogPlugin, math::Rect, prelude::*, sprite::Anchor, window::PrimaryWindow};
+use bevy::{
+    color::palettes::css::*, log::LogPlugin, math::Rect, prelude::*, sprite::Anchor,
+    window::PrimaryWindow,
+};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_keith::*;
+
+mod utils;
+use utils::*;
 
 fn main() {
     App::new()
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins(LogDiagnosticsPlugin::default())
         // Helper to exit with ESC key
-        .add_systems(Update, bevy::window::close_on_esc)
+        .add_systems(Update, close_on_esc)
         // Default plugins
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "quad=trace,bevy_keith=warn,bevy=info".to_string(),
-                    update_subscriber: None,
+                    custom_layer: |_| None,
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
@@ -28,7 +34,7 @@ fn main() {
                     ..default()
                 }),
         )
-        .insert_resource(ClearColor(Color::DARK_GRAY))
+        .insert_resource(ClearColor(DARK_GRAY.into()))
         .add_plugins(KeithPlugin)
         .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
@@ -54,33 +60,30 @@ fn setup(
         min: Vec2::splat(-400.),
         max: Vec2::splat(100.),
     });
-    canvas.background_color = Some(Color::BEIGE);
-    commands
-        .spawn(Camera2dBundle::default())
-        .insert(canvas)
-        .insert(MyRes {
+    canvas.background_color = Some(BEIGE.into());
+    commands.spawn((
+        Camera2d::default(),
+        canvas,
+        MyRes {
             font: font.clone(),
             image: image.clone(),
-        });
+        },
+    ));
 
     // Display the text pipeline's glyph atlas as a debug visualization
     commands
-        .spawn(SpriteBundle {
-            sprite: Sprite {
-                color: Color::rgba_u8(0, 0, 0, 128),
+        .spawn((
+            Sprite {
+                color: Color::srgba_u8(0, 0, 0, 128),
                 custom_size: Some(Vec2::splat(512.)),
                 ..default()
             },
-            transform: Transform::from_xyz(400., 0., 0.),
-            ..default()
-        })
+            Transform::from_xyz(400., 0., 0.),
+        ))
         .with_children(|p| {
-            p.spawn(SpriteBundle {
-                texture: text_pipeline.atlas_texture_handle.clone(),
-                sprite: Sprite {
-                    custom_size: Some(Vec2::splat(512.)),
-                    ..default()
-                },
+            p.spawn(Sprite {
+                image: text_pipeline.atlas_texture_handle.clone(),
+                custom_size: Some(Vec2::splat(512.)),
                 ..default()
             });
         });
@@ -133,21 +136,28 @@ fn draw_button(
     // Text
     let text = ctx
         .new_layout(text.to_owned())
-        .color(Color::rgb(0.2, 0.2, 0.2))
+        .color(Color::srgb(0.2, 0.2, 0.2))
         .font(font)
-        .font_size(16.)
+        .font_size(12.)
         .bounds(rect.size())
+        .anchor(Anchor::Center)
         .alignment(JustifyText::Center)
         .build();
-    ctx.draw_text(text, (rect.min + rect.max) / 2.);
+    let pos = (rect.min + rect.max) / 2.;
+    ctx.draw_text(text, pos);
+
+    // Text Anchor
+    let brush = ctx.solid_brush(RED.into());
+    ctx.line(pos - Vec2::X * 3., pos + Vec2::X * 3., &brush, 1.);
+    ctx.line(pos - Vec2::Y * 3., pos + Vec2::Y * 3., &brush, 1.);
 }
 
 fn run(
     time: Res<Time>,
-    mut query: Query<(&mut Canvas, &MyRes)>,
+    mut query: Query<(&Camera, &mut Canvas, &MyRes)>,
     q_window: Query<&Window, With<PrimaryWindow>>,
 ) {
-    let (mut canvas, my_res) = query.single_mut();
+    let (camera, mut canvas, my_res) = query.single_mut();
     canvas.clear();
 
     let mut ctx = canvas.render_context();
@@ -163,19 +173,19 @@ fn run(
     .unwrap_or(Vec2::NAN);
     //trace!("cursor_pos={cursor_pos}");
 
-    // ctx.clear(None, Color::FUCHSIA);
+    // ctx.clear(None, FUCHSIA.into());
 
-    let border_brush = ctx.solid_brush(Color::DARK_GREEN);
-    let brush = ctx.solid_brush(Color::BISQUE);
+    let border_brush = ctx.solid_brush(DARK_GREEN.into());
+    let brush = ctx.solid_brush(BISQUE.into());
     let rect = Rect {
         min: Vec2::new(-10., -30.),
         max: Vec2::new(30., 130.),
     };
-    let border_width = (time.elapsed_seconds() * 2.).sin() * 4. + 4.;
+    let border_width = (time.elapsed_secs() * 2.).sin() * 4. + 4.;
     ctx.fill(rect, &brush).border(&border_brush, border_width);
 
-    let radius = time.elapsed_seconds().sin() * 8. + 8.;
-    let brush = ctx.solid_brush(Color::PINK);
+    let radius = time.elapsed_secs().sin() * 8. + 8.;
+    let brush = ctx.solid_brush(PINK.into());
     let rounded_rect = RoundedRect {
         rect: Rect {
             min: Vec2::new(30., -132.),
@@ -187,13 +197,12 @@ fn run(
 
     let text = ctx
         .new_layout("Hello World!")
-        .color(Color::TEAL)
+        .color(TEAL.into())
         .font(my_res.font.clone())
         .font_size(32.)
         .anchor(Anchor::BottomLeft)
         .build();
-    //ctx.draw_text(text, Vec2::new(300., -20.0));
-    ctx.draw_text(text, Vec2::new(0.0, 0.0));
+    ctx.draw_text(text, Vec2::ZERO);
 
     let rect = Rect {
         min: Vec2::new(100., 150.),
@@ -201,8 +210,8 @@ fn run(
     };
     ctx.draw_image(rect, my_res.image.clone(), ImageScaling::default());
 
-    let brush = ctx.solid_brush(Color::GREEN);
-    let delta = time.elapsed_seconds().sin() * 15. + 30.;
+    let brush = ctx.solid_brush(LAWN_GREEN.into());
+    let delta = time.elapsed_secs().sin() * 15. + 30.;
     for i in 0..=10 {
         ctx.line(
             Vec2::new(-200.5, 0.5 + i as f32 * 15.),
@@ -213,24 +222,27 @@ fn run(
         .border(&border_brush, border_width);
     }
 
-    let color = Color::hsl((time.elapsed_seconds() / 3.).fract() * 360., 0.5, 0.5);
+    let color = Color::oklch(0.5, 0.7, (time.elapsed_secs() / 3.).fract() * 360.);
     let text = ctx
         .new_layout("bevy_keith")
         .color(color)
         .font(my_res.font.clone())
         .font_size(128.)
+        .anchor(Anchor::BottomLeft)
         .build();
-    ctx.draw_text(text, Vec2::new(-350., 300.0));
+    let canvas_size = camera.logical_target_size().unwrap();
+    let bottom_left = Vec2::new(-canvas_size.x / 2., canvas_size.y / 2.);
+    ctx.draw_text(text, bottom_left);
 
     // // Rounded rect with border
     // let rect = Rect::from_center_size(Vec2::new(300., 200.), Vec2::new(80.,
-    // 40.)); let brush = ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7));
+    // 40.)); let brush = ctx.solid_brush(Color::srgb(0.7, 0.7, 0.7));
     // let rrect = RoundedRect {
     //     rect,
     //     radius: 4.,
     // };
     // ctx.fill(rrect, &brush);
-    // let brush = ctx.solid_brush(Color::rgb(0.6, 0.6, 0.6));
+    // let brush = ctx.solid_brush(Color::srgb(0.6, 0.6, 0.6));
     // let rrect = RoundedRect {
     //     rect: rect.inset(0.5),
     //     radius: 4.5,

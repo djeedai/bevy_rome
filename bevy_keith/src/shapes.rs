@@ -9,7 +9,7 @@
 
 use bevy::{
     prelude::{Rect, Vec2},
-    render::color::Color,
+    color::Color,
     utils::default,
 };
 
