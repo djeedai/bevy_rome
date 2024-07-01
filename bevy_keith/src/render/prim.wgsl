@@ -88,17 +88,19 @@ fn get_tile_dim() -> vec2<u32> {
     return vec2<u32>(u32(xy.x), u32(xy.y));
 }
 
-struct IndexAndKind {
+struct PrimitiveInfo {
     index: u32,
     kind: u32,
     textured: bool,
+    bordered: bool,
 }
 
-fn unpack_index_and_kind(value: u32) -> IndexAndKind {
-    let index = (value & 0x0FFFFFFFu);
+fn unpack_primitive_index(value: u32) -> PrimitiveInfo {
+    let index = (value & 0x07FFFFFFu);
+    let bordered = (value & 0x08000000u) != 0u;
     let kind = (value & 0x70000000u) >> 28u;
     let textured = (value & 0x80000000u) != 0u;
-    return IndexAndKind(index, kind, textured);
+    return PrimitiveInfo(index, kind, textured, bordered);
 }
 
 fn get_vertex_pos(vertex_index: u32) -> vec2<f32> {
@@ -110,7 +112,7 @@ fn get_vertex_pos(vertex_index: u32) -> vec2<f32> {
     }
 }
 
-fn sdf_rect(offset: u32, canvas_pos: vec2<f32>, textured: bool) -> vec4<f32> {
+fn sdf_rect(offset: u32, canvas_pos: vec2<f32>, textured: bool, bordered: bool) -> vec4<f32> {
     let x = primitives.elems[offset];
     let y = primitives.elems[offset + 1u];
     let center = vec2<f32>(x, y);
@@ -131,18 +133,32 @@ fn sdf_rect(offset: u32, canvas_pos: vec2<f32>, textured: bool) -> vec4<f32> {
     let alpha = smoothstep(rgba.a, 0., ratio);
 
     var color = rgba.rgb;
+    var off = offset + 6u;
     if (textured) {
-        let uv_x = primitives.elems[offset + 6u];
-        let uv_y = primitives.elems[offset + 7u];
-        let uv_sx = primitives.elems[offset + 8u];
-        let uv_sy = primitives.elems[offset + 9u];
+        let uv_x = primitives.elems[off + 0u];
+        let uv_y = primitives.elems[off + 1u];
+        let uv_sx = primitives.elems[off + 2u];
+        let uv_sy = primitives.elems[off + 3u];
         let uv_origin = vec2<f32>(uv_x, uv_y);
         let uv_scale = vec2<f32>(uv_sx, uv_sy);
         let uv = (canvas_pos - center) * uv_scale + uv_origin;
         color *= textureSample(quad_texture, quad_sampler, uv).rgb;
+        off += 4u;
     }
 
-    return vec4<f32>(color, alpha);
+    var color2 = color;
+    if (bordered) {
+        let border_width = primitives.elems[off + 0u];
+        let bc = primitives.elems[off + 1u];
+        let ubc: u32 = bitcast<u32>(bc);
+        let border_color = unpack4x8unorm(ubc);
+        let dist2 = dist + border_width;
+        let ratio2 = dist2 + 0.5; // pixel center is at 0.5 from actual border
+        let alpha2 = smoothstep(1., 0., ratio2);
+        color2 = mix(color, border_color.rgb, 1. - alpha2);
+    }
+
+    return vec4<f32>(color2, alpha);
 }
 
 fn sdf_glyph(offset: u32, canvas_pos: vec2<f32>) -> vec4<f32> {
@@ -240,22 +256,22 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let prim_offset = offsets_and_counts[tile_index].offset;
     let prim_count = offsets_and_counts[tile_index].count;
     for (var i = prim_offset; i < prim_offset + prim_count; i += 1u) {
-        let index_and_kind = unpack_index_and_kind(tiles.primitives[i]);
-        switch index_and_kind.kind {
+        let prim_info = unpack_primitive_index(tiles.primitives[i]);
+        switch prim_info.kind {
             case PRIM_RECT {
-                let new_color = sdf_rect(index_and_kind.index, canvas_pos, index_and_kind.textured);
+                let new_color = sdf_rect(prim_info.index, canvas_pos, prim_info.textured, prim_info.bordered);
                 let new_alpha = mix(color.a, 1.0, new_color.a);
                 color = mix(color, new_color, new_color.a);
                 color.a = new_alpha;
             }
             case PRIM_GLYPH {
-                let new_color = sdf_glyph(index_and_kind.index, canvas_pos);
+                let new_color = sdf_glyph(prim_info.index, canvas_pos);
                 let new_alpha = mix(color.a, 1.0, new_color.a);
                 color = mix(color, new_color, new_color.a);
                 color.a = new_alpha;
             }
             case PRIM_LINE {
-                let new_color = sdf_line(index_and_kind.index, canvas_pos);
+                let new_color = sdf_line(prim_info.index, canvas_pos);
                 let new_alpha = mix(color.a, 1.0, new_color.a);
                 color = mix(color, new_color, new_color.a);
                 color.a = new_alpha;

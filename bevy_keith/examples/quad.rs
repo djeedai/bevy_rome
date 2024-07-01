@@ -167,12 +167,14 @@ fn run(
 
     // ctx.clear(None, Color::FUCHSIA);
 
+    let border_brush = ctx.solid_brush(Color::DARK_GREEN);
     let brush = ctx.solid_brush(Color::BISQUE);
     let rect = Rect {
         min: Vec2::new(-10., -30.),
         max: Vec2::new(30., 130.),
     };
-    ctx.fill(rect, &brush);
+    let border_width = (time.elapsed_seconds() * 2.).sin() * 4. + 4.;
+    ctx.fill(rect, &brush).border(&border_brush, border_width);
 
     let radius = time.elapsed_seconds().sin() * 8. + 8.;
     let brush = ctx.solid_brush(Color::PINK);

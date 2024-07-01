@@ -44,6 +44,7 @@ use bytemuck::{Pod, Zeroable};
 use crate::{
     render::{ExtractedCanvas, ExtractedText, PreparedPrimitive},
     render_context::{RenderContext, TextLayout},
+    ShapeRef,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +128,16 @@ impl Primitive {
         match self {
             Primitive::Line(_) => false,
             Primitive::Rect(r) => r.is_textured(),
+            Primitive::Text(_) => true,
+            Primitive::QuarterPie(_) => false,
+        }
+    }
+
+    /// Is the primitive bordered?
+    pub fn is_bordered(&self) -> bool {
+        match self {
+            Primitive::Line(_) => false,
+            Primitive::Rect(r) => r.is_bordered(),
             Primitive::Text(_) => true,
             Primitive::QuarterPie(_) => false,
         }
@@ -244,7 +255,8 @@ impl LinePrimitive {
 pub struct RectPrimitive {
     /// Position and size of the rectangle in its canvas space.
     ///
-    /// For rounded rectangles, this is the AABB (the radius is included).
+    /// For rounded rectangles, this is the AABB (the radius and borders are
+    /// included).
     pub rect: Rect,
     /// Rounded corners radius. Set to zero to disable rounded corners.
     pub radius: f32,
@@ -256,13 +268,23 @@ pub struct RectPrimitive {
     pub flip_x: bool,
     /// Flip the image (if any) along the vertical axis.
     pub flip_y: bool,
+    /// Size of the border, if any, or zero if no border. The borders always
+    /// expand inside the rectangle. Negative values or zero mean no border.
+    pub border_width: f32,
+    /// Border color, if any (ignored if `border_width <= 0.`).
+    pub border_color: Color,
 }
 
 impl RectPrimitive {
     /// Number of primitive buffer rows (4 bytes) per primitive.
-    const ROW_COUNT: u32 = 6;
-    /// Number of primitive buffer rows (4 bytes) per primitive when textured.
-    const ROW_COUNT_TEX: u32 = 10;
+    const ROW_COUNT_BASE: u32 = 6;
+    /// Number of extra primitive buffer rows (4 bytes) per primitive to add
+    /// when textured. Those extra rows follow the base ones.
+    const ROW_COUNT_TEX: u32 = 4;
+    /// Number of extra primitive buffer rows (4 bytes) per primitive to add
+    /// when bordered. Those extra rows follow the texture ones, or the base
+    /// ones if there's no texture.
+    const ROW_COUNT_BORDER: u32 = 2;
 
     /// Get the AABB of this rectangle.
     pub fn aabb(&self) -> Aabb2d {
@@ -275,17 +297,25 @@ impl RectPrimitive {
     /// Is this primitive textured?
     ///
     /// True if [`RectPrimitive::image`] is `Some`.
-    pub fn is_textured(&self) -> bool {
+    pub const fn is_textured(&self) -> bool {
         self.image.is_some()
     }
 
+    /// Is the primitive bordered?
+    pub fn is_bordered(&self) -> bool {
+        self.border_width > 0.
+    }
+
     #[inline]
-    const fn row_count(&self) -> u32 {
-        if self.image.is_some() {
-            Self::ROW_COUNT_TEX
-        } else {
-            Self::ROW_COUNT
+    fn row_count(&self) -> u32 {
+        let mut rows = Self::ROW_COUNT_BASE;
+        if self.is_textured() {
+            rows += Self::ROW_COUNT_TEX;
         }
+        if self.is_bordered() {
+            rows += Self::ROW_COUNT_BORDER;
+        }
+        rows
     }
 
     fn info(&self) -> PrimitiveInfo {
@@ -314,12 +344,18 @@ impl RectPrimitive {
         prim[3].write(half_size.y);
         prim[4].write(self.radius * scale_factor);
         prim[5].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
-        if self.image.is_some() {
-            prim[6].write(0.5);
-            prim[7].write(0.5);
-            prim[8].write(1. / 16.); // FIXME - hardcoded image size + mapping (scale 1:1, fit to rect, etc.)
-            prim[9].write(1. / 16.); // FIXME - hardcoded image size + mapping
-                                     // (scale 1:1, fit to rect, etc.)
+        let mut idx = 6;
+        if self.is_textured() {
+            prim[idx + 0].write(0.5);
+            prim[idx + 1].write(0.5);
+            prim[idx + 2].write(1. / 16.); // FIXME - hardcoded image size + mapping (scale 1:1, fit to rect, etc.)
+            prim[idx + 3].write(1. / 16.); // FIXME - hardcoded image size + mapping
+                                           // (scale 1:1, fit to rect, etc.)
+            idx += 4;
+        }
+        if self.is_bordered() {
+            prim[idx + 0].write(self.border_width * scale_factor);
+            prim[idx + 1].write(bytemuck::cast(self.border_color.as_linear_rgba_u32()));
         }
     }
 }
@@ -343,7 +379,7 @@ pub struct TextPrimitive {
 impl TextPrimitive {
     /// Number of elements used by each single glyph in the primitive element
     /// buffer.
-    pub const ROW_PER_GLYPH: u32 = RectPrimitive::ROW_COUNT_TEX;
+    pub const ROW_PER_GLYPH: u32 = RectPrimitive::ROW_COUNT_BASE + RectPrimitive::ROW_COUNT_TEX;
 
     /// Get the AABB of this text.
     pub fn aabb(&self, canvas: &ExtractedCanvas) -> Aabb2d {
@@ -607,8 +643,13 @@ impl Canvas {
     ///
     /// [`render_context()`]: crate::canvas::Canvas::render_context
     #[inline]
-    pub fn draw(&mut self, prim: impl Into<Primitive>) {
-        self.primitives.push(prim.into());
+    pub fn draw<'a>(&'a mut self, prim: impl Into<Primitive>) -> ShapeRef<'a> {
+        let prim = prim.into();
+        self.primitives.push(prim);
+        let sref = ShapeRef {
+            prim: self.primitives.last_mut().unwrap(),
+        };
+        sref
     }
 
     /// Acquire a new render context to draw on this canvas.
@@ -672,15 +713,24 @@ pub(crate) struct OffsetAndCount {
     pub count: u32,
 }
 
-/// Compacted primitive index and kind.
+/// Packed primitive index and extra data.
+///
+/// Contains a primitive index packed inside a `u32` alongside other bits
+/// necessary to drive the shader code:
+/// - Index of the first row in the primitive buffer.
+/// - Kind of primitive.
+/// - Is the primitive textured?
+/// - Is the primitive bordered (has a border)?
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Pod, Zeroable)]
 #[repr(transparent)]
-pub(crate) struct PrimitiveIndexAndKind(pub u32);
+pub(crate) struct PackedPrimitiveIndex(pub u32);
 
-impl PrimitiveIndexAndKind {
-    pub fn new(index: u32, kind: GpuPrimitiveKind, textured: bool) -> Self {
+impl PackedPrimitiveIndex {
+    /// Create a new packed index from individual values.
+    pub fn new(index: u32, kind: GpuPrimitiveKind, textured: bool, bordered: bool) -> Self {
         let textured = (textured as u32) << 31;
-        let value = (index & 0x0FFF_FFFF) | (kind as u32) << 28 | textured;
+        let bordered = (bordered as u32) << 27;
+        let value = (index & 0x07FF_FFFF) | (kind as u32) << 28 | textured | bordered;
         Self(value)
     }
 }
@@ -688,7 +738,7 @@ impl PrimitiveIndexAndKind {
 #[derive(Clone, Copy)]
 struct AssignedTile {
     pub tile_index: i32,
-    pub prim_index: PrimitiveIndexAndKind,
+    pub prim_index: PackedPrimitiveIndex,
 }
 
 #[derive(Default, Clone, Component)]
@@ -705,7 +755,7 @@ pub struct Tiles {
     /// [`OffsetAndCount::count`] consecutive primitive offsets, each offset
     /// being the start of the primitive into the primitive buffer of the
     /// canvas.
-    pub(crate) primitives: Vec<PrimitiveIndexAndKind>,
+    pub(crate) primitives: Vec<PackedPrimitiveIndex>,
     /// Offset and count of primitives per tile, into [`Tiles::primitives`].
     pub(crate) offset_and_count: Vec<OffsetAndCount>,
     /// Local cache saved frame-to-frame to avoid allocations.
@@ -891,7 +941,7 @@ mod tests {
         assert!(tiles.offset_and_count.is_empty());
         assert_eq!(tiles.offset_and_count.capacity(), 32);
 
-        let prim_index = PrimitiveIndexAndKind::new(42, GpuPrimitiveKind::Line, true);
+        let prim_index = PackedPrimitiveIndex::new(42, GpuPrimitiveKind::Line, true, false);
         tiles.assign_to_tiles(&[PreparedPrimitive {
             // 8 x 16, exactly aligned on the tile grid => 2 tiles exactly
             aabb: Aabb2d {

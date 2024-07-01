@@ -11,6 +11,7 @@ use bevy::text::TextLayoutInfo;
 use crate::{
     canvas::{Canvas, LinePrimitive, RectPrimitive, TextPrimitive},
     shapes::Shape,
+    ShapeRef,
 };
 
 #[derive(Debug, Clone)]
@@ -263,8 +264,8 @@ impl<'c> RenderContext<'c> {
     }
 
     /// Fill a shape with a given brush.
-    pub fn fill(&mut self, shape: impl Shape, brush: &Brush) {
-        shape.fill(self.canvas, brush);
+    pub fn fill(&mut self, shape: impl Shape, brush: &Brush) -> ShapeRef {
+        shape.fill(self.canvas, brush)
     }
 
     /// Stroke a shape with a given brush.
@@ -299,11 +300,9 @@ impl<'c> RenderContext<'c> {
     pub fn draw_image(&mut self, shape: Rect, image: Handle<Image>) {
         self.canvas.draw(RectPrimitive {
             rect: shape,
-            radius: 0.,
             color: Color::WHITE,
-            flip_x: false,
-            flip_y: false,
             image: Some(image.id()),
+            ..Default::default()
         });
     }
 }

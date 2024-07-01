@@ -40,7 +40,7 @@ use bevy::{
 };
 
 use crate::{
-    canvas::{Canvas, OffsetAndCount, Primitive, PrimitiveIndexAndKind, PrimitiveInfo, Tiles},
+    canvas::{Canvas, OffsetAndCount, PackedPrimitiveIndex, Primitive, PrimitiveInfo, Tiles},
     text::CanvasTextId,
     PRIMITIVE_SHADER_HANDLE,
 };
@@ -923,7 +923,7 @@ pub(crate) struct PreparedPrimitive {
     /// AABB in canvas space, for tile assignment.
     pub aabb: Aabb2d,
     /// Primitive index.
-    pub prim_index: PrimitiveIndexAndKind,
+    pub prim_index: PackedPrimitiveIndex,
 }
 
 pub(crate) fn prepare_primitives(
@@ -992,8 +992,9 @@ pub(crate) fn prepare_primitives(
         for prim in &extracted_canvas.primitives {
             let base_index = primitives.len() as u32;
             let is_textured = prim.is_textured();
+            let is_bordered = prim.is_bordered();
             let mut prim_index =
-                PrimitiveIndexAndKind::new(base_index, prim.gpu_kind(), is_textured);
+                PackedPrimitiveIndex::new(base_index, prim.gpu_kind(), is_textured, is_bordered);
 
             trace!("+ Primitive @ base_index={}", base_index);
 
