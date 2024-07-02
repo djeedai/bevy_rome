@@ -121,16 +121,14 @@ fn draw_button(
     cursor_pos: Vec2,
 ) {
     // Background
-    let brush = if rect.contains(cursor_pos) {
-        ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7))
+    let (brush, border_brush) = if rect.contains(cursor_pos) {
+        let border_brush = ctx.solid_brush(Color::rgb(0.6, 0.6, 1.0));
+        (ctx.solid_brush(Color::rgb(0.7, 0.7, 0.7)), border_brush)
     } else {
-        ctx.solid_brush(Color::rgb(0.6, 0.6, 0.6))
+        let border_brush = ctx.solid_brush(Color::rgb(0.8, 0.8, 0.9));
+        (ctx.solid_brush(Color::rgb(0.6, 0.6, 0.6)), border_brush)
     };
-    ctx.fill(rect, &brush);
-
-    // Outline
-    let brush = ctx.solid_brush(Color::rgb(0.5, 0.5, 0.5));
-    ctx.stroke(rect, &brush, 1.);
+    ctx.fill(rect, &brush).border(&border_brush, 2.);
 
     // Text
     let text = ctx

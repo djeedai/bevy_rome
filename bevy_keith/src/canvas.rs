@@ -128,7 +128,7 @@ impl Primitive {
         match self {
             Primitive::Line(_) => false,
             Primitive::Rect(r) => r.is_textured(),
-            Primitive::Text(_) => true,
+            Primitive::Text(_) => false, // not in the sense of regular texture mapping
             Primitive::QuarterPie(_) => false,
         }
     }
@@ -138,7 +138,7 @@ impl Primitive {
         match self {
             Primitive::Line(_) => false,
             Primitive::Rect(r) => r.is_bordered(),
-            Primitive::Text(_) => true,
+            Primitive::Text(_) => false,
             Primitive::QuarterPie(_) => false,
         }
     }
