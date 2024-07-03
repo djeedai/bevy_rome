@@ -209,7 +209,8 @@ fn run(
             Vec2::new(0.5, 0.5 + i as f32 * delta),
             &brush,
             1. + i as f32,
-        );
+        )
+        .border(&border_brush, border_width);
     }
 
     let color = Color::hsl((time.elapsed_seconds() / 3.).fract() * 360., 0.5, 0.5);

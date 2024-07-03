@@ -284,12 +284,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         var dist: f32;
         var new_color: vec4<f32>;
         var uv_origin: vec2<f32>;
+        var coverage: f32;
         switch prim_info.kind {
             case PRIM_RECT {
                 let rect = read_rect(prim_info.index);
                 uv_origin = rect.center;
                 dist = sd_rect(canvas_pos, rect);
-                let alpha = rect.extras.color.a * aa_coverage(dist);
+                coverage = aa_coverage(dist);
+                let alpha = rect.extras.color.a * coverage;
                 new_color = vec4<f32>(rect.extras.color.rgb, alpha);
                 offset = 6u + prim_info.index;
             }
@@ -297,7 +299,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 let rect = read_rect(prim_info.index);
                 uv_origin = rect.center;
                 dist = sd_rect(canvas_pos, rect);
-                let alpha = rect.extras.color.a * aa_coverage(dist);
+                coverage = aa_coverage(dist);
+                let alpha = rect.extras.color.a * coverage;
 
                 let uv_x = primitives.elems[prim_info.index + 6u];
                 let uv_y = primitives.elems[prim_info.index + 7u];
@@ -314,7 +317,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             case PRIM_LINE {
                 let line = read_line(prim_info.index);
                 dist = sd_line(line.p0, line.p1, line.thickness, canvas_pos) - line.extras.radius;
-                let alpha = line.extras.color.a * aa_coverage(dist);
+                coverage = aa_coverage(dist);
+                let alpha = line.extras.color.a * coverage;
                 new_color = vec4<f32>(line.extras.color.rgb, alpha);
                 uv_origin = (line.p0 + line.p1) / 2.;
                 offset = 6u + prim_info.index;
@@ -347,7 +351,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             let border_color = unpack4x8unorm(ubc);
             let dist2 = dist + border_width;
             let alpha2 = aa_coverage(dist2);
-            color = vec4<f32>(mix(color.rgb, border_color.rgb, 1. - alpha2), color.a);
+            color = vec4<f32>(mix(color.rgb, border_color.rgb, (1. - alpha2) * coverage), color.a);
         }
     }
 

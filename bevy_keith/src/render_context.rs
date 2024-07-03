@@ -277,13 +277,14 @@ impl<'c> RenderContext<'c> {
     ///
     /// The line thickness is centered on the mathematical line between the two
     /// endpoints, spanning `thickness / 2.` on each side.
-    pub fn line(&mut self, p0: Vec2, p1: Vec2, brush: &Brush, thickness: f32) {
+    pub fn line(&mut self, p0: Vec2, p1: Vec2, brush: &Brush, thickness: f32) -> ShapeRef {
         self.canvas.draw(LinePrimitive {
             start: p0,
             end: p1,
             color: brush.color(),
             thickness,
-        });
+            ..default()
+        })
     }
 
     pub fn new_layout(&mut self, text: impl TextStorage) -> TextLayoutBuilder {

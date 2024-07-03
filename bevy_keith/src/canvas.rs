@@ -136,7 +136,7 @@ impl Primitive {
     /// Is the primitive bordered?
     pub fn is_bordered(&self) -> bool {
         match self {
-            Primitive::Line(_) => false,
+            Primitive::Line(l) => l.is_bordered(),
             Primitive::Rect(r) => r.is_bordered(),
             Primitive::Text(_) => false,
             Primitive::QuarterPie(_) => false,
@@ -214,6 +214,11 @@ pub struct LinePrimitive {
     /// The line shape extends equally by `thickness / 2.` on both sides of the
     /// mathematical (infinitely thin) line joining the start and end points.
     pub thickness: f32,
+    /// Size of the border, if any, or zero if no border. The borders always
+    /// expand inside the line. Negative values or zero mean no border.
+    pub border_width: f32,
+    /// Border color, if any (ignored if `border_width <= 0.`).
+    pub border_color: Color,
 }
 
 impl LinePrimitive {
@@ -231,21 +236,32 @@ impl LinePrimitive {
         Aabb2d { min, max }
     }
 
+    /// Is the primitive bordered?
+    pub fn is_bordered(&self) -> bool {
+        self.border_width > 0.
+    }
+
     fn info(&self) -> PrimitiveInfo {
         PrimitiveInfo {
-            row_count: 6,
+            row_count: 6 + if self.is_bordered() { 2 } else { 0 },
             sub_prim_count: 1,
         }
     }
 
     fn write(&self, prim: &mut [MaybeUninit<f32>], canvas_translation: Vec2, scale_factor: f32) {
-        assert_eq!(6, prim.len());
         prim[0].write((self.start.x + canvas_translation.x) * scale_factor);
         prim[1].write((self.start.y + canvas_translation.y) * scale_factor);
         prim[2].write((self.end.x + canvas_translation.x) * scale_factor);
         prim[3].write((self.end.y + canvas_translation.y) * scale_factor);
         prim[4].write(bytemuck::cast(self.color.as_linear_rgba_u32()));
         prim[5].write(self.thickness * scale_factor);
+        if self.is_bordered() {
+            assert_eq!(8, prim.len());
+            prim[6].write(self.border_width * scale_factor);
+            prim[7].write(bytemuck::cast(self.border_color.as_linear_rgba_u32()));
+        } else {
+            assert_eq!(6, prim.len());
+        }
     }
 }
 

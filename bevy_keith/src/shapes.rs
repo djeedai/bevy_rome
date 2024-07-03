@@ -53,7 +53,10 @@ impl<'a> ShapeExt for ShapeRef<'a> {
                 r.border_color = brush.color();
                 r.border_width = thickness.max(0.);
             }
-            Primitive::Line(l) => todo!(),
+            Primitive::Line(l) => {
+                l.border_color = brush.color();
+                l.border_width = thickness.max(0.);
+            }
             Primitive::Text(t) => todo!(),
             Primitive::QuarterPie(q) => todo!(),
         };
