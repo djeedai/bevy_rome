@@ -432,7 +432,7 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
                 entry_point: "fragment".into(),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
-                    blend: Some(BlendState::ALPHA_BLENDING),
+                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
             }),
@@ -454,7 +454,7 @@ impl SpecializedRenderPipeline for PrimitivePipeline {
             multisample: MultisampleState {
                 count: key.msaa_samples(),
                 mask: !0,
-                alpha_to_coverage_enabled: true,
+                alpha_to_coverage_enabled: false,
             },
             label: Some("keith:primitive_pipeline".into()),
             push_constant_ranges: vec![],

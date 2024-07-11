@@ -35,3 +35,7 @@ required-features = [ "bevy/bevy_winit", "bevy/png" ]
 [[example]]
 name = "ui"
 required-features = [ "bevy/bevy_winit", "bevy/png" ]
+
+[[example]]
+name = "alpha"
+required-features = [ "bevy/bevy_winit", "bevy/png" ]

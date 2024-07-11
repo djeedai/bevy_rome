@@ -327,8 +327,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
 
         let new_alpha = mix(color.a, 1.0, new_color.a);
-        color = mix(color, new_color, new_color.a);
-        color.a = new_alpha;
+        let rgb = mix(color.rgb, new_color.rgb, new_color.a);
+        color = vec4<f32>(rgb, new_alpha);
             
         var off = offset;
         if (prim_info.textured) {
