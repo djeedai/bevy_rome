@@ -807,7 +807,7 @@ impl Tiles {
     }
 
     /// Assign the given primitives to tiles.
-    pub(crate) fn assign_to_tiles(&mut self, primitives: &[PreparedPrimitive]) {
+    pub(crate) fn assign_to_tiles(&mut self, primitives: &[PreparedPrimitive], screen_size: Vec2) {
         let tile_size = self.tile_size.as_vec2();
 
         let oc_extra = self.dimensions.x as usize * self.dimensions.y as usize;
@@ -819,9 +819,13 @@ impl Tiles {
 
         // Loop over primitives and find tiles they overlap
         for prim in primitives {
-            // Calculate bounds in terms of tile indices
-            let uv_min = (prim.aabb.min / tile_size).floor().as_ivec2();
-            let mut uv_max = (prim.aabb.max / tile_size).ceil().as_ivec2();
+            // Calculate bounds in terms of tile indices, clamped to the size of the screen
+            let uv_min = (prim.aabb.min.clamp(Vec2::ZERO, screen_size) / tile_size)
+                .floor()
+                .as_ivec2();
+            let mut uv_max = (prim.aabb.max.clamp(Vec2::ZERO, screen_size) / tile_size)
+                .ceil()
+                .as_ivec2();
             if prim.aabb.max.x == tile_size.x * uv_max.x as f32 {
                 // We ignore tiles which only have a shared edge and no actualy surface overlap
                 uv_max.x -= 1;
@@ -1065,14 +1069,18 @@ mod tests {
         assert_eq!(tiles.offset_and_count.capacity(), 32);
 
         let prim_index = PackedPrimitiveIndex::new(42, GpuPrimitiveKind::Line, true, false);
-        tiles.assign_to_tiles(&[PreparedPrimitive {
-            // 8 x 16, exactly aligned on the tile grid => 2 tiles exactly
-            aabb: Aabb2d {
-                min: Vec2::new(8., 16.),
-                max: Vec2::new(16., 32.),
-            },
-            prim_index,
-        }]);
+        tiles.assign_to_tiles(
+            &[PreparedPrimitive {
+                // 8 x 16, exactly aligned on the tile grid => 2 tiles exactly
+                aabb: Aabb2d {
+                    min: Vec2::new(8., 16.),
+                    max: Vec2::new(16., 32.),
+                },
+                prim_index,
+            }],
+            // Large screen size, no effect in this test
+            Vec2::new(256., 128.),
+        );
 
         assert_eq!(tiles.primitives.len(), 2);
         assert_eq!(tiles.primitives[0], prim_index);

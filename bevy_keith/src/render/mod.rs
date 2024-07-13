@@ -1085,9 +1085,10 @@ pub(crate) fn prepare_primitives(
                 // initialized to an invalid empty batch)
                 if !current_batch.is_empty() {
                     // Assign primitives to tiles
-                    extracted_canvas
-                        .tiles
-                        .assign_to_tiles(&prepared_primitives[pp_offset as usize..]);
+                    extracted_canvas.tiles.assign_to_tiles(
+                        &prepared_primitives[pp_offset as usize..],
+                        extracted_canvas.screen_size.as_vec2(),
+                    );
                     // trace!(
                     //     "{} primitives overlap {} tiles",
                     //     prepared_primitives.len() as u32 - pp_offset,
@@ -1128,9 +1129,10 @@ pub(crate) fn prepare_primitives(
             trace!("Output last batch... pp_offset={pp_offset}");
 
             // Assign primitives to tiles
-            extracted_canvas
-                .tiles
-                .assign_to_tiles(&prepared_primitives[pp_offset as usize..]);
+            extracted_canvas.tiles.assign_to_tiles(
+                &prepared_primitives[pp_offset as usize..],
+                extracted_canvas.screen_size.as_vec2(),
+            );
             // trace!(
             //     "{} primitives overlap {} tiles",
             //     prepared_primitives.len() as u32 - pp_offset,
