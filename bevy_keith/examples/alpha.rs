@@ -145,7 +145,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     p.y += 200.;
     ctx.fill(Rect::from_center_size(p, Vec2::splat(100.)), &red);
     ctx.draw_text(text, p - Vec2::Y * 30.);
-    ctx.draw_image(img_rect, my_res.image.clone());
+    ctx.draw_image(img_rect, my_res.image.clone(), ImageScaling::default());
     ctx.fill(
         Rect::from_center_size(p + Vec2::splat(50.), Vec2::splat(100.)),
         &red,
@@ -155,7 +155,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     p.x += 200.;
     ctx.fill(Rect::from_center_size(p, Vec2::splat(100.)), &red);
     ctx.draw_text(text, p - Vec2::Y * 30.);
-    ctx.draw_image(img_rect, my_res.image.clone());
+    ctx.draw_image(img_rect, my_res.image.clone(), ImageScaling::default());
     ctx.fill(
         Rect::from_center_size(p + Vec2::splat(50.), Vec2::splat(100.)),
         &red50,
@@ -165,7 +165,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     p.x += 200.;
     ctx.fill(Rect::from_center_size(p, Vec2::splat(100.)), &red50);
     ctx.draw_text(text, p - Vec2::Y * 30.);
-    ctx.draw_image(img_rect, my_res.image.clone());
+    ctx.draw_image(img_rect, my_res.image.clone(), ImageScaling::default());
     ctx.fill(
         Rect::from_center_size(p + Vec2::splat(50.), Vec2::splat(100.)),
         &red50,
@@ -175,7 +175,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     p.x += 200.;
     ctx.fill(Rect::from_center_size(p, Vec2::splat(100.)), &red);
     ctx.draw_text(text, p - Vec2::Y * 30.);
-    ctx.draw_image(img_rect, my_res.image.clone());
+    ctx.draw_image(img_rect, my_res.image.clone(), ImageScaling::default());
     ctx.fill(
         Rect::from_center_size(p + Vec2::splat(50.), Vec2::splat(100.)),
         &green,
@@ -185,7 +185,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     p.x += 200.;
     ctx.fill(Rect::from_center_size(p, Vec2::splat(100.)), &red);
     ctx.draw_text(text, p - Vec2::Y * 30.);
-    ctx.draw_image(img_rect, my_res.image.clone());
+    ctx.draw_image(img_rect, my_res.image.clone(), ImageScaling::default());
     ctx.fill(
         Rect::from_center_size(p + Vec2::splat(50.), Vec2::splat(100.)),
         &green50,
@@ -195,7 +195,7 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
     p.x += 200.;
     ctx.fill(Rect::from_center_size(p, Vec2::splat(100.)), &red50);
     ctx.draw_text(text, p - Vec2::Y * 30.);
-    ctx.draw_image(img_rect, my_res.image.clone());
+    ctx.draw_image(img_rect, my_res.image.clone(), ImageScaling::default());
     ctx.fill(
         Rect::from_center_size(p + Vec2::splat(50.), Vec2::splat(100.)),
         &green50,

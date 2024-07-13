@@ -229,22 +229,30 @@ impl<'c> TextLayoutBuilder<'c> {
 //     }
 // }
 
+/// Scaling for image rendering.
 #[derive(Debug, Clone, Copy)]
 pub enum ImageScaling {
     /// Scale the image uniformly by the given factor.
+    ///
+    /// This is the default, with `factor == 1.`, and draws the image at its
+    /// native size. Values greater than `1.` increase the image size (zoom in),
+    /// while values less than `1.` decrase it (zoom out).
     Uniform(f32),
     /// Fit the image width to the target content width.
+    ///
     /// If `true`, stretch the height; otherwise keep the aspect ratio and clip
     /// it.
     FitWidth(bool),
     /// Fit the image height to the target content height.
+    ///
     /// If `true`, stretch the width; otherwise keep the aspect ratio and clip
     /// it.
     FitHeight(bool),
     /// Fit either the image width or height to the target content size, such
-    /// that it covers the content. If `true`, stretch the other direction;
-    /// otherwise clip it.
-    FitAny(bool),
+    /// that it covers the content.
+    ///
+    /// If `true`, stretch the other direction; otherwise clip it.
+    Fit(bool),
     /// Stretch the image to the target content size.
     Stretch,
 }

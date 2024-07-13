@@ -199,7 +199,7 @@ fn run(
         min: Vec2::new(100., 150.),
         max: Vec2::new(164., 214.),
     };
-    ctx.draw_image(rect, my_res.image.clone());
+    ctx.draw_image(rect, my_res.image.clone(), ImageScaling::default());
 
     let brush = ctx.solid_brush(Color::GREEN);
     let delta = time.elapsed_seconds().sin() * 15. + 30.;

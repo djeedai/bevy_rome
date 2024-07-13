@@ -1021,7 +1021,7 @@ pub fn process_images(
                     ImageScaling::FitHeight(stretch_width) => {
                         fit_height(image_size, content_size, stretch_width)
                     }
-                    ImageScaling::FitAny(stretch_other) => {
+                    ImageScaling::Fit(stretch_other) => {
                         fit_any(image_size, content_size, stretch_other)
                     }
                     ImageScaling::Stretch => content_size,
