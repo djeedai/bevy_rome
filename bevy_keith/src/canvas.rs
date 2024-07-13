@@ -34,16 +34,17 @@ use bevy::{
     },
     log::trace,
     math::{bounding::Aabb2d, Rect, UVec2, Vec2, Vec3},
-    prelude::{BVec2, OrthographicProjection},
+    prelude::*,
     render::{camera::Camera, color::Color, texture::Image},
     sprite::TextureAtlasLayout,
     utils::default,
+    window::PrimaryWindow,
 };
 use bytemuck::{Pod, Zeroable};
 
 use crate::{
     render::{ExtractedCanvas, ExtractedText, PreparedPrimitive},
-    render_context::{RenderContext, TextLayout},
+    render_context::{ImageScaling, RenderContext, TextLayout},
     ShapeRef,
 };
 
@@ -280,6 +281,10 @@ pub struct RectPrimitive {
     pub color: Color,
     /// Optional handle to the image used for texturing the rectangle.
     pub image: Option<AssetId<Image>>,
+    /// Image size, populated from actual texture size and scaling.
+    pub image_size: Vec2,
+    /// Scaling for the image (if any).
+    pub image_scaling: ImageScaling,
     /// Flip the image (if any) along the horizontal axis.
     pub flip_x: bool,
     /// Flip the image (if any) along the vertical axis.
@@ -364,9 +369,8 @@ impl RectPrimitive {
         if self.is_textured() {
             prim[idx + 0].write(0.5);
             prim[idx + 1].write(0.5);
-            prim[idx + 2].write(1. / 16.); // FIXME - hardcoded image size + mapping (scale 1:1, fit to rect, etc.)
-            prim[idx + 3].write(1. / 16.); // FIXME - hardcoded image size + mapping
-                                           // (scale 1:1, fit to rect, etc.)
+            prim[idx + 2].write(1. / self.image_size.x);
+            prim[idx + 3].write(1. / self.image_size.y);
             idx += 4;
         }
         if self.is_bordered() {
@@ -940,6 +944,92 @@ pub fn allocate_atlas_layouts(
         // FIXME - also check for resize...
         if canvas.atlas_layout == Handle::<TextureAtlasLayout>::default() {
             canvas.atlas_layout = layouts.add(TextureAtlasLayout::new_empty(size));
+        }
+    }
+}
+
+fn aspect_width(size: Vec2, content_height: f32) -> f32 {
+    size.x / size.y * content_height
+}
+
+fn fit_width(size: Vec2, content_size: Vec2, stretch_height: bool) -> Vec2 {
+    Vec2::new(
+        content_size.x,
+        if stretch_height {
+            content_size.y
+        } else {
+            aspect_height(size, content_size.x)
+        },
+    )
+}
+
+fn aspect_height(size: Vec2, content_width: f32) -> f32 {
+    size.y / size.x * content_width
+}
+
+fn fit_height(size: Vec2, content_size: Vec2, stretch_width: bool) -> Vec2 {
+    Vec2::new(
+        if stretch_width {
+            content_size.x
+        } else {
+            aspect_width(size, content_size.y)
+        },
+        content_size.y,
+    )
+}
+
+fn fit_any(size: Vec2, content_size: Vec2, stretch_other: bool) -> Vec2 {
+    let aspect = size.x / size.y.max(1.);
+    let content_aspect = content_size.x / content_size.y.max(1.);
+    if aspect >= content_aspect {
+        fit_height(size, content_size, stretch_other)
+    } else {
+        fit_width(size, content_size, stretch_other)
+    }
+}
+
+pub fn process_images(
+    images: Res<Assets<Image>>,
+    q_window: Query<&Window, With<PrimaryWindow>>,
+    mut q_canvas: Query<&mut Canvas>,
+) {
+    // TODO - handle multi-window
+    let Ok(primary_window) = q_window.get_single() else {
+        return;
+    };
+    let scale_factor = primary_window.scale_factor() as f32;
+
+    for mut canvas in q_canvas.iter_mut() {
+        for prim in &mut canvas.primitives {
+            let Primitive::Rect(rect) = prim else {
+                continue;
+            };
+            let Some(id) = rect.image else {
+                continue;
+            };
+            if let Some(image) = images.get(id) {
+                let image_size = Vec2::new(
+                    image.texture_descriptor.size.width as f32,
+                    image.texture_descriptor.size.height as f32,
+                );
+                let content_size = rect.rect.size() * scale_factor;
+                rect.image_size = match rect.image_scaling {
+                    ImageScaling::Uniform(ratio) => image_size * ratio,
+                    ImageScaling::FitWidth(stretch_height) => {
+                        fit_width(image_size, content_size, stretch_height)
+                    }
+                    ImageScaling::FitHeight(stretch_width) => {
+                        fit_height(image_size, content_size, stretch_width)
+                    }
+                    ImageScaling::FitAny(stretch_other) => {
+                        fit_any(image_size, content_size, stretch_other)
+                    }
+                    ImageScaling::Stretch => content_size,
+                }
+            } else {
+                warn!("Unknown image asset ID {:?}; skipped.", id);
+                rect.image = None;
+            }
         }
     }
 }

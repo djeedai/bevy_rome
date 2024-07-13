@@ -136,7 +136,8 @@ fn run(mut query: Query<(&mut Canvas, &MyRes)>, q_window: Query<&Window, With<Pr
         &green50,
     );
 
-    // Row #2 - force write to render target by drawing an image, which will force a separate draw call
+    // Row #2 - force write to render target by drawing an image, which will force a
+    // separate draw call
 
     p.x = 100.;
     let delta = Vec2::new(50., 80.);

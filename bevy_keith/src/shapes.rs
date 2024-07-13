@@ -10,6 +10,7 @@
 use bevy::{
     prelude::{Rect, Vec2},
     render::color::Color,
+    utils::default,
 };
 
 use crate::{
@@ -107,6 +108,8 @@ impl Shape for Rect {
             flip_x: false,
             flip_y: false,
             image: None,
+            image_size: Vec2::ZERO,
+            image_scaling: default(),
             border_width: 0.,
             border_color: Color::NONE,
         };

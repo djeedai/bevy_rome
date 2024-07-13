@@ -229,6 +229,32 @@ impl<'c> TextLayoutBuilder<'c> {
 //     }
 // }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ImageScaling {
+    /// Scale the image uniformly by the given factor.
+    Uniform(f32),
+    /// Fit the image width to the target content width.
+    /// If `true`, stretch the height; otherwise keep the aspect ratio and clip
+    /// it.
+    FitWidth(bool),
+    /// Fit the image height to the target content height.
+    /// If `true`, stretch the width; otherwise keep the aspect ratio and clip
+    /// it.
+    FitHeight(bool),
+    /// Fit either the image width or height to the target content size, such
+    /// that it covers the content. If `true`, stretch the other direction;
+    /// otherwise clip it.
+    FitAny(bool),
+    /// Stretch the image to the target content size.
+    Stretch,
+}
+
+impl Default for ImageScaling {
+    fn default() -> Self {
+        Self::Uniform(1.0)
+    }
+}
+
 pub struct RenderContext<'c> {
     /// Transform applied to all operations on this render context.
     //transform: Affine2,
@@ -298,11 +324,12 @@ impl<'c> RenderContext<'c> {
         });
     }
 
-    pub fn draw_image(&mut self, shape: Rect, image: Handle<Image>) {
+    pub fn draw_image(&mut self, shape: Rect, image: Handle<Image>, scaling: ImageScaling) {
         self.canvas.draw(RectPrimitive {
             rect: shape,
             color: Color::WHITE,
             image: Some(image.id()),
+            image_scaling: scaling,
             ..Default::default()
         });
     }

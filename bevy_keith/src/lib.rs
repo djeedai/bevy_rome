@@ -129,6 +129,7 @@ impl Plugin for KeithPlugin {
                         .after(bevy::render::view::VisibilitySystems::CheckVisibility)
                         .after(bevy::render::camera::CameraUpdateSystem),
                     canvas::allocate_atlas_layouts,
+                    canvas::process_images,
                 ),
             );
     }
