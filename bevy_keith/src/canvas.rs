@@ -948,10 +948,14 @@ pub fn allocate_atlas_layouts(
     }
 }
 
+/// Calculate the width of a fixed-aspect rectangle given a content height.
 fn aspect_width(size: Vec2, content_height: f32) -> f32 {
-    size.x / size.y * content_height
+    size.x.max(0.) / size.y.max(1.) * content_height.max(0.)
 }
 
+/// Calculate the size of a rectangle such that its width fits in the given
+/// content, and its height either stretches to that content or it keeps its
+/// aspect ratio (and therefore gets clipped).
 fn fit_width(size: Vec2, content_size: Vec2, stretch_height: bool) -> Vec2 {
     Vec2::new(
         content_size.x,
@@ -963,10 +967,14 @@ fn fit_width(size: Vec2, content_size: Vec2, stretch_height: bool) -> Vec2 {
     )
 }
 
+/// Calculate the height of a fixed-aspect rectangle given a content width.
 fn aspect_height(size: Vec2, content_width: f32) -> f32 {
-    size.y / size.x * content_width
+    size.y.max(0.) / size.x.max(1.) * content_width.max(0.)
 }
 
+/// Calculate the size of a rectangle such that its height fits in the given
+/// content, and its width either stretches to that content or it keeps its
+/// aspect ratio (and therefore gets clipped).
 fn fit_height(size: Vec2, content_size: Vec2, stretch_width: bool) -> Vec2 {
     Vec2::new(
         if stretch_width {
@@ -978,9 +986,13 @@ fn fit_height(size: Vec2, content_size: Vec2, stretch_width: bool) -> Vec2 {
     )
 }
 
+/// Calculate the size of a rectangle such that both its width and height fit in
+/// the given content, and the other direction either stretches to that content
+/// or it keeps its aspect ratio. This ensures the returned rectangle covers the
+/// content, possibly clipping in one direction to do so.
 fn fit_any(size: Vec2, content_size: Vec2, stretch_other: bool) -> Vec2 {
-    let aspect = size.x / size.y.max(1.);
-    let content_aspect = content_size.x / content_size.y.max(1.);
+    let aspect = size.x.max(0.) / size.y.max(1.);
+    let content_aspect = content_size.x.max(0.) / content_size.y.max(1.);
     if aspect >= content_aspect {
         fit_height(size, content_size, stretch_other)
     } else {
@@ -988,6 +1000,11 @@ fn fit_any(size: Vec2, content_size: Vec2, stretch_other: bool) -> Vec2 {
     }
 }
 
+/// Process all images drawn onto all canvases.
+///
+/// This calculates the proper image size given the content rectangle size and
+/// the window scale factor, applying any image scaling as specified during the
+/// draw call.
 pub fn process_images(
     images: Res<Assets<Image>>,
     q_window: Query<&Window, With<PrimaryWindow>>,
@@ -1070,5 +1087,83 @@ mod tests {
                 assert_eq!(oc.count, 0);
             }
         }
+    }
+
+    #[test]
+    fn aspect() {
+        // Aspect ratios
+        assert_eq!(aspect_width(Vec2::ZERO, 0.), 0.);
+        assert_eq!(aspect_height(Vec2::ZERO, 0.), 0.);
+        assert_eq!(aspect_width(Vec2::ZERO, 1.), 0.);
+        assert_eq!(aspect_height(Vec2::ZERO, 1.), 0.);
+        assert_eq!(aspect_width(Vec2::ONE, 0.), 0.);
+        assert_eq!(aspect_height(Vec2::ONE, 0.), 0.);
+
+        // Expand to fit
+        assert_eq!(aspect_width(Vec2::new(256., 64.), 128.), 512.);
+        assert_eq!(aspect_height(Vec2::new(256., 64.), 512.), 128.);
+
+        // Shrink to fit
+        assert_eq!(aspect_width(Vec2::new(256., 128.), 64.), 128.);
+        assert_eq!(aspect_height(Vec2::new(256., 64.), 128.), 32.);
+    }
+
+    #[test]
+    fn fit() {
+        // Fit to zero-sized content is always zero
+        assert_eq!(fit_width(Vec2::ZERO, Vec2::ZERO, false), Vec2::ZERO);
+        assert_eq!(fit_height(Vec2::ZERO, Vec2::ZERO, false), Vec2::ZERO);
+        assert_eq!(fit_any(Vec2::ZERO, Vec2::ZERO, false), Vec2::ZERO);
+        assert_eq!(fit_width(Vec2::ONE, Vec2::ZERO, false), Vec2::ZERO);
+        assert_eq!(fit_height(Vec2::ONE, Vec2::ZERO, false), Vec2::ZERO);
+        assert_eq!(fit_any(Vec2::ONE, Vec2::ZERO, false), Vec2::ZERO);
+        assert_eq!(fit_width(Vec2::ZERO, Vec2::ZERO, true), Vec2::ZERO);
+        assert_eq!(fit_height(Vec2::ZERO, Vec2::ZERO, true), Vec2::ZERO);
+        assert_eq!(fit_any(Vec2::ZERO, Vec2::ZERO, true), Vec2::ZERO);
+        assert_eq!(fit_width(Vec2::ONE, Vec2::ZERO, true), Vec2::ZERO);
+        assert_eq!(fit_height(Vec2::ONE, Vec2::ZERO, true), Vec2::ZERO);
+        assert_eq!(fit_any(Vec2::ONE, Vec2::ZERO, true), Vec2::ZERO);
+
+        // Fit zero-sized (size is ignored in fit direction, only content matters)
+        assert_eq!(fit_width(Vec2::ZERO, Vec2::ONE, false), Vec2::X);
+        assert_eq!(fit_height(Vec2::ZERO, Vec2::ONE, false), Vec2::Y);
+        assert_eq!(fit_width(Vec2::ZERO, Vec2::ONE, true), Vec2::ONE);
+        assert_eq!(fit_height(Vec2::ZERO, Vec2::ONE, true), Vec2::ONE);
+
+        // Expand to fit
+        assert_eq!(
+            fit_width(Vec2::new(256., 64.), Vec2::new(512., 32.), false),
+            Vec2::new(512., 128.)
+        );
+        assert_eq!(
+            fit_height(Vec2::new(256., 64.), Vec2::new(128., 128.), false),
+            Vec2::new(512., 128.)
+        );
+        assert_eq!(
+            fit_width(Vec2::new(256., 64.), Vec2::new(512., 32.), true),
+            Vec2::new(512., 32.)
+        );
+        assert_eq!(
+            fit_height(Vec2::new(256., 64.), Vec2::new(128., 128.), true),
+            Vec2::new(128., 128.)
+        );
+
+        // Shrink to fit
+        assert_eq!(
+            fit_width(Vec2::new(256., 64.), Vec2::new(128., 128.), false),
+            Vec2::new(128., 32.)
+        );
+        assert_eq!(
+            fit_height(Vec2::new(256., 64.), Vec2::new(512., 32.), false),
+            Vec2::new(128., 32.)
+        );
+        assert_eq!(
+            fit_width(Vec2::new(256., 64.), Vec2::new(128., 128.), true),
+            Vec2::new(128., 128.)
+        );
+        assert_eq!(
+            fit_height(Vec2::new(256., 64.), Vec2::new(512., 32.), true),
+            Vec2::new(512., 32.)
+        );
     }
 }
